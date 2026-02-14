@@ -2,9 +2,10 @@ import { eq, and, lt, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import {
-  users, projects, subscriptions, aiUsage, submissions,
+  users, projects, subscriptions, aiUsage, submissions, supportTickets,
   type User, type InsertUser, type Project, type InsertProject,
   type Subscription, type AiUsage, type Submission, type InsertSubmission,
+  type SupportTicket, type InsertSupportTicket,
 } from "@shared/schema";
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
@@ -32,6 +33,16 @@ export interface IStorage {
   getAllSubmissions(): Promise<(Submission & { projectName?: string; userEmail?: string })[]>;
   createSubmission(userId: string, data: InsertSubmission): Promise<Submission>;
   updateSubmissionStatus(id: string, status: string): Promise<void>;
+
+  getSupportTickets(userId: string): Promise<(SupportTicket & { userEmail?: string })[]>;
+  getAllSupportTickets(): Promise<(SupportTicket & { userEmail?: string })[]>;
+  createSupportTicket(userId: string, data: InsertSupportTicket): Promise<SupportTicket>;
+  updateSupportTicket(id: string, data: Partial<SupportTicket>): Promise<void>;
+
+  getAllUsers(): Promise<Omit<User, "password">[]>;
+  getAllProjects(): Promise<(Project & { userEmail?: string })[]>;
+  getAdminStats(): Promise<{ totalUsers: number; totalProjects: number; activeSubscriptions: number; openTickets: number; totalSubmissions: number }>;
+  cancelSubscription(userId: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -157,6 +168,64 @@ export class DatabaseStorage implements IStorage {
 
   async updateSubmissionStatus(id: string, status: string): Promise<void> {
     await db.update(submissions).set({ status, updatedAt: new Date() }).where(eq(submissions.id, id));
+  }
+
+  async getSupportTickets(userId: string): Promise<(SupportTicket & { userEmail?: string })[]> {
+    const tickets = await db.select().from(supportTickets).where(eq(supportTickets.userId, userId)).orderBy(supportTickets.createdAt);
+    return tickets;
+  }
+
+  async getAllSupportTickets(): Promise<(SupportTicket & { userEmail?: string })[]> {
+    const tickets = await db.select().from(supportTickets).orderBy(supportTickets.createdAt);
+    const result = [];
+    for (const ticket of tickets) {
+      const user = await this.getUser(ticket.userId);
+      result.push({ ...ticket, userEmail: user?.email });
+    }
+    return result;
+  }
+
+  async createSupportTicket(userId: string, data: InsertSupportTicket): Promise<SupportTicket> {
+    const [ticket] = await db.insert(supportTickets).values({ ...data, userId }).returning();
+    return ticket;
+  }
+
+  async updateSupportTicket(id: string, data: Partial<SupportTicket>): Promise<void> {
+    await db.update(supportTickets).set({ ...data, updatedAt: new Date() }).where(eq(supportTickets.id, id));
+  }
+
+  async getAllUsers(): Promise<Omit<User, "password">[]> {
+    const allUsers = await db.select({ id: users.id, email: users.email, role: users.role }).from(users);
+    return allUsers;
+  }
+
+  async getAllProjects(): Promise<(Project & { userEmail?: string })[]> {
+    const allProjects = await db.select().from(projects).orderBy(projects.createdAt);
+    const result = [];
+    for (const project of allProjects) {
+      const user = await this.getUser(project.userId);
+      result.push({ ...project, userEmail: user?.email });
+    }
+    return result;
+  }
+
+  async getAdminStats(): Promise<{ totalUsers: number; totalProjects: number; activeSubscriptions: number; openTickets: number; totalSubmissions: number }> {
+    const [userCount] = await db.select({ count: sql<number>`count(*)::int` }).from(users);
+    const [projectCount] = await db.select({ count: sql<number>`count(*)::int` }).from(projects);
+    const [subCount] = await db.select({ count: sql<number>`count(*)::int` }).from(subscriptions).where(eq(subscriptions.status, "active"));
+    const [ticketCount] = await db.select({ count: sql<number>`count(*)::int` }).from(supportTickets).where(eq(supportTickets.status, "open"));
+    const [submissionCount] = await db.select({ count: sql<number>`count(*)::int` }).from(submissions);
+    return {
+      totalUsers: userCount.count,
+      totalProjects: projectCount.count,
+      activeSubscriptions: subCount.count,
+      openTickets: ticketCount.count,
+      totalSubmissions: submissionCount.count,
+    };
+  }
+
+  async cancelSubscription(userId: string): Promise<void> {
+    await db.update(subscriptions).set({ status: "cancelled", updatedAt: new Date() }).where(eq(subscriptions.userId, userId));
   }
 }
 

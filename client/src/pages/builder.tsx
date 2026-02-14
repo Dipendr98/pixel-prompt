@@ -12,6 +12,7 @@ import {
   useSensor,
   useSensors,
   DragOverlay,
+  useDroppable,
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
@@ -49,7 +50,89 @@ import {
   Settings,
   Sparkles,
   Loader2,
+  Plus,
 } from "lucide-react";
+
+function CanvasDropZone({
+  blocks,
+  selectedBlockId,
+  onSelectBlock,
+  onDeleteBlock,
+  onAddBlock,
+}: {
+  blocks: ComponentBlock[];
+  selectedBlockId: string | null;
+  onSelectBlock: (id: string | null) => void;
+  onDeleteBlock: (id: string) => void;
+  onAddBlock: (type: string) => void;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: "canvas-drop-zone" });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className="flex-1 overflow-auto bg-muted/30"
+      onClick={() => onSelectBlock(null)}
+    >
+      <div className="max-w-3xl mx-auto p-6 min-h-full">
+        {blocks.length === 0 ? (
+          <div
+            className={`flex flex-col items-center justify-center py-24 text-center border-2 border-dashed rounded-md transition-colors ${
+              isOver ? "border-primary bg-primary/5" : "border-border"
+            }`}
+          >
+            <div className="w-16 h-16 rounded-md bg-muted flex items-center justify-center mb-4">
+              <Layers className="w-8 h-8 text-muted-foreground" />
+            </div>
+            <h3 className="font-medium mb-1" data-testid="text-empty-canvas">
+              {isOver ? "Drop here to add" : "Start building"}
+            </h3>
+            <p className="text-sm text-muted-foreground max-w-xs mb-4">
+              Drag components from the left panel or use AI to generate sections
+            </p>
+            <div className="flex items-center gap-2 flex-wrap justify-center">
+              <Button variant="outline" size="sm" onClick={() => onAddBlock("hero")} data-testid="button-add-hero">
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                Add Hero
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => onAddBlock("heading")} data-testid="button-add-heading">
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                Add Heading
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => onAddBlock("text")} data-testid="button-add-text">
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                Add Text
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <SortableContext items={blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
+            <div className="space-y-2">
+              {blocks.map((block) => (
+                <CanvasBlock
+                  key={block.id}
+                  block={block}
+                  isSelected={selectedBlockId === block.id}
+                  onSelect={() => onSelectBlock(block.id)}
+                  onDelete={() => onDeleteBlock(block.id)}
+                />
+              ))}
+            </div>
+            <div
+              className={`mt-4 border-2 border-dashed rounded-md p-4 text-center transition-colors ${
+                isOver ? "border-primary bg-primary/5" : "border-transparent hover:border-border"
+              }`}
+            >
+              <p className="text-xs text-muted-foreground">
+                {isOver ? "Drop here to add at bottom" : "Drag more components here"}
+              </p>
+            </div>
+          </SortableContext>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function createDefaultBlock(type: string): ComponentBlock {
   const id = nanoid(8);
@@ -161,12 +244,16 @@ export default function Builder() {
 
     if (activeData?.fromLibrary) {
       const newBlock = createDefaultBlock(activeData.type);
-      const overIndex = blocks.findIndex((b) => b.id === over.id);
       const newBlocks = [...blocks];
-      if (overIndex >= 0) {
-        newBlocks.splice(overIndex + 1, 0, newBlock);
-      } else {
+      if (over.id === "canvas-drop-zone") {
         newBlocks.push(newBlock);
+      } else {
+        const overIndex = blocks.findIndex((b) => b.id === over.id);
+        if (overIndex >= 0) {
+          newBlocks.splice(overIndex + 1, 0, newBlock);
+        } else {
+          newBlocks.push(newBlock);
+        }
       }
       updateBlocks(newBlocks);
       setSelectedBlockId(newBlock.id);
@@ -286,38 +373,17 @@ export default function Builder() {
             <ComponentLibrary />
           </div>
 
-          <div
-            className="flex-1 overflow-auto bg-muted/30"
-            onClick={() => setSelectedBlockId(null)}
-          >
-            <div className="max-w-3xl mx-auto p-6 min-h-full">
-              {blocks.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-24 text-center">
-                  <div className="w-16 h-16 rounded-md bg-muted flex items-center justify-center mb-4">
-                    <Layers className="w-8 h-8 text-muted-foreground" />
-                  </div>
-                  <h3 className="font-medium mb-1" data-testid="text-empty-canvas">Start building</h3>
-                  <p className="text-sm text-muted-foreground max-w-xs">
-                    Drag components from the left panel or use AI to generate sections
-                  </p>
-                </div>
-              ) : (
-                <SortableContext items={blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
-                  <div className="space-y-2">
-                    {blocks.map((block) => (
-                      <CanvasBlock
-                        key={block.id}
-                        block={block}
-                        isSelected={selectedBlockId === block.id}
-                        onSelect={() => setSelectedBlockId(block.id)}
-                        onDelete={() => handleDeleteBlock(block.id)}
-                      />
-                    ))}
-                  </div>
-                </SortableContext>
-              )}
-            </div>
-          </div>
+          <CanvasDropZone
+            blocks={blocks}
+            selectedBlockId={selectedBlockId}
+            onSelectBlock={setSelectedBlockId}
+            onDeleteBlock={handleDeleteBlock}
+            onAddBlock={(type: string) => {
+              const newBlock = createDefaultBlock(type);
+              updateBlocks([...blocks, newBlock]);
+              setSelectedBlockId(newBlock.id);
+            }}
+          />
 
           <div className="w-80 border-l bg-card shrink-0 overflow-hidden">
             <Tabs defaultValue="properties" className="h-full flex flex-col">

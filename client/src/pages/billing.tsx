@@ -19,6 +19,19 @@ export default function Billing() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
 
+  const cancelMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/subscription/cancel");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      toast({ title: "Subscription cancelled", description: "Your Pro access has been removed" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
   const upgradeMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/razorpay/order");
@@ -154,8 +167,19 @@ export default function Billing() {
                 </Button>
               )}
               {isPro && (
-                <div className="text-sm text-muted-foreground mt-2 text-center" data-testid="text-active-sub">
-                  Your subscription is active
+                <div className="space-y-3 mt-2">
+                  <div className="text-sm text-muted-foreground text-center" data-testid="text-active-sub">
+                    Your subscription is active
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => cancelMutation.mutate()}
+                    disabled={cancelMutation.isPending}
+                    data-testid="button-cancel-subscription"
+                  >
+                    {cancelMutation.isPending ? "Cancelling..." : "Cancel Subscription"}
+                  </Button>
                 </div>
               )}
             </CardContent>

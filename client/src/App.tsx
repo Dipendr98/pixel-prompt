@@ -14,6 +14,7 @@ import Builder from "@/pages/builder";
 import Billing from "@/pages/billing";
 import AdminSubmissions from "@/pages/admin-submissions";
 import MySubmissions from "@/pages/my-submissions";
+import Support from "@/pages/support";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
@@ -77,6 +78,9 @@ function Router() {
       </Route>
       <Route path="/submissions">
         <ProtectedRoute component={MySubmissions} />
+      </Route>
+      <Route path="/support">
+        <ProtectedRoute component={Support} />
       </Route>
       <Route component={NotFound} />
     </Switch>

@@ -21,7 +21,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, MoreVertical, Trash2, Pencil, ExternalLink, Layers, CreditCard, LogOut, Shield, FileText } from "lucide-react";
+import { Plus, MoreVertical, Trash2, Pencil, ExternalLink, Layers, CreditCard, LogOut, Shield, FileText, HelpCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 
@@ -107,6 +107,10 @@ export default function Dashboard() {
             <Button variant="ghost" size="sm" onClick={() => navigate("/submissions")} data-testid="button-my-submissions">
               <FileText className="w-4 h-4 mr-1" />
               Submissions
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => navigate("/support")} data-testid="button-support">
+              <HelpCircle className="w-4 h-4 mr-1" />
+              Support
             </Button>
             <Button variant="ghost" size="sm" onClick={handleLogout} data-testid="button-logout">
               <LogOut className="w-4 h-4 mr-1" />

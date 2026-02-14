@@ -22,7 +22,7 @@ export async function registerRoutes(
 
   app.get("/api/projects/:id", requireAuth, async (req, res) => {
     try {
-      const project = await storage.getProject(req.params.id, req.user!.id);
+      const project = await storage.getProject(req.params.id as string, req.user!.id);
       if (!project) return res.status(404).json({ message: "Project not found" });
       res.json(project);
     } catch (err: any) {
@@ -43,7 +43,7 @@ export async function registerRoutes(
 
   app.patch("/api/projects/:id", requireAuth, async (req, res) => {
     try {
-      const project = await storage.updateProject(req.params.id, req.user!.id, req.body);
+      const project = await storage.updateProject(req.params.id as string, req.user!.id, req.body);
       if (!project) return res.status(404).json({ message: "Project not found" });
       res.json(project);
     } catch (err: any) {
@@ -53,7 +53,7 @@ export async function registerRoutes(
 
   app.delete("/api/projects/:id", requireAuth, async (req, res) => {
     try {
-      const deleted = await storage.deleteProject(req.params.id, req.user!.id);
+      const deleted = await storage.deleteProject(req.params.id as string, req.user!.id);
       if (!deleted) return res.status(404).json({ message: "Project not found" });
       res.json({ ok: true });
     } catch (err: any) {
@@ -203,7 +203,7 @@ export async function registerRoutes(
         return res.status(403).send("Export requires Pro subscription");
       }
 
-      const project = await storage.getProject(req.params.projectId, userId);
+      const project = await storage.getProject(req.params.projectId as string, userId);
       if (!project) return res.status(404).send("Project not found");
 
       const schema = Array.isArray(project.schema) ? (project.schema as any[]) : [];
@@ -262,7 +262,85 @@ export async function registerRoutes(
     try {
       const { status } = req.body;
       if (!status) return res.status(400).json({ message: "Status required" });
-      await storage.updateSubmissionStatus(req.params.id, status);
+      await storage.updateSubmissionStatus(req.params.id as string, status);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/support", requireAuth, async (req, res) => {
+    try {
+      const tickets = await storage.getSupportTickets(req.user!.id);
+      res.json(tickets);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/support", requireAuth, async (req, res) => {
+    try {
+      const { subject, message } = req.body;
+      if (!subject || !message) return res.status(400).json({ message: "Subject and message required" });
+      const ticket = await storage.createSupportTicket(req.user!.id, { subject, message });
+      res.json(ticket);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/tickets", requireAdmin, async (req, res) => {
+    try {
+      const tickets = await storage.getAllSupportTickets();
+      res.json(tickets);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/admin/tickets/:id", requireAdmin, async (req, res) => {
+    try {
+      const { status, adminReply } = req.body;
+      const update: any = { updatedAt: new Date() };
+      if (status) update.status = status;
+      if (adminReply !== undefined) update.adminReply = adminReply;
+      await storage.updateSupportTicket(req.params.id as string, update);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/stats", requireAdmin, async (req, res) => {
+    try {
+      const stats = await storage.getAdminStats();
+      res.json(stats);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/users", requireAdmin, async (req, res) => {
+    try {
+      const allUsers = await storage.getAllUsers();
+      res.json(allUsers);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/projects", requireAdmin, async (req, res) => {
+    try {
+      const allProjects = await storage.getAllProjects();
+      res.json(allProjects);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/subscription/cancel", requireAuth, async (req, res) => {
+    try {
+      await storage.cancelSubscription(req.user!.id);
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

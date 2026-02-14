@@ -1,7 +1,7 @@
 # BuilderPro - AI Website Builder SaaS
 
 ## Overview
-A Website Builder SaaS application similar to Wix/Webflow. Users can create projects, build pages using drag-and-drop components, generate content with AI, export to ZIP, and submit projects for team review. Includes billing with Razorpay integration.
+A Website Builder SaaS application similar to Wix/Webflow. Users can create projects, build pages using drag-and-drop components, generate content with AI, export to ZIP, and submit projects for team review. Includes billing with Razorpay integration, support ticket system, and comprehensive admin panel.
 
 ## Architecture
 - **Frontend**: React + TypeScript + TailwindCSS + shadcn/ui + wouter routing
@@ -18,9 +18,10 @@ A Website Builder SaaS application similar to Wix/Webflow. Users can create proj
 - `/signup` - Create account
 - `/dashboard` - Project management (protected)
 - `/builder/:projectId` - 3-column builder (protected)
-- `/billing` - Plans & payment (protected)
+- `/billing` - Plans & payment with cancel option (protected)
 - `/submissions` - User's submissions (protected)
-- `/admin/submissions` - Admin review panel (protected, admin only)
+- `/support` - Support tickets (protected)
+- `/admin/submissions` - Full admin panel with stats, tickets, projects, users (protected, admin only)
 
 ## Database Tables
 - `users` - Auth with email/password, role (user/admin)
@@ -28,6 +29,7 @@ A Website Builder SaaS application similar to Wix/Webflow. Users can create proj
 - `subscriptions` - Pro plan status, Razorpay integration
 - `ai_usage` - Daily AI call tracking
 - `submissions` - Project submissions for team review
+- `support_tickets` - User support tickets with admin replies
 
 ## API Routes
 - `POST /api/auth/signup` - Create account
@@ -39,9 +41,15 @@ A Website Builder SaaS application similar to Wix/Webflow. Users can create proj
 - `POST /api/razorpay/order` - Create Razorpay order
 - `POST /api/razorpay/verify` - Verify payment signature
 - `POST /api/razorpay/webhook` - Razorpay webhook handler
+- `POST /api/subscription/cancel` - Cancel subscription
 - `GET /api/export/:projectId` - Export project as ZIP (pro only)
 - `GET/POST /api/submissions` - User submissions
+- `GET/POST /api/support` - User support tickets
 - `GET/PATCH /api/admin/submissions` - Admin submission management
+- `GET/PATCH /api/admin/tickets` - Admin ticket management
+- `GET /api/admin/stats` - Platform statistics
+- `GET /api/admin/users` - All users
+- `GET /api/admin/projects` - All projects
 
 ## Environment Variables
 - `DATABASE_URL` - PostgreSQL connection string
@@ -61,3 +69,6 @@ hero, section, heading, text, button, image, divider, spacer, features
 
 ## Admin Setup
 To make a user admin: `UPDATE users SET role='admin' WHERE email='admin@example.com';`
+
+## Setup Guide
+Full setup instructions are in SETUP.md
