@@ -58,6 +58,16 @@ export const supportTickets = pgTable("support_tickets", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+export const automationLogs = pgTable("automation_logs", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobName: text("job_name").notNull(),
+  status: text("status").notNull().default("running"),
+  message: text("message"),
+  triggeredBy: text("triggered_by").default("system"),
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, role: true });
 export const insertProjectSchema = createInsertSchema(projects).omit({ id: true, userId: true, createdAt: true, updatedAt: true });
 export const insertSubmissionSchema = createInsertSchema(submissions).omit({ id: true, userId: true, status: true, createdAt: true, updatedAt: true });
@@ -73,6 +83,7 @@ export type Submission = typeof submissions.$inferSelect;
 export type InsertSubmission = z.infer<typeof insertSubmissionSchema>;
 export type SupportTicket = typeof supportTickets.$inferSelect;
 export type InsertSupportTicket = z.infer<typeof insertSupportTicketSchema>;
+export type AutomationLog = typeof automationLogs.$inferSelect;
 
 export const componentSchema = z.object({
   id: z.string(),

@@ -1,11 +1,12 @@
 import { eq, and, lt, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
+import { desc } from "drizzle-orm";
 import {
-  users, projects, subscriptions, aiUsage, submissions, supportTickets,
+  users, projects, subscriptions, aiUsage, submissions, supportTickets, automationLogs,
   type User, type InsertUser, type Project, type InsertProject,
   type Subscription, type AiUsage, type Submission, type InsertSubmission,
-  type SupportTicket, type InsertSupportTicket,
+  type SupportTicket, type InsertSupportTicket, type AutomationLog,
 } from "@shared/schema";
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
@@ -43,6 +44,13 @@ export interface IStorage {
   getAllProjects(): Promise<(Project & { userEmail?: string })[]>;
   getAdminStats(): Promise<{ totalUsers: number; totalProjects: number; activeSubscriptions: number; openTickets: number; totalSubmissions: number }>;
   cancelSubscription(userId: string): Promise<void>;
+
+  createAutomationLog(jobName: string, triggeredBy: string): Promise<AutomationLog>;
+  updateAutomationLog(id: string, status: string, message: string): Promise<void>;
+  getAutomationLogs(limit?: number): Promise<AutomationLog[]>;
+  resetAiUsage(): Promise<number>;
+  expireSubscriptions(): Promise<number>;
+  cleanupPendingPayments(): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -226,6 +234,43 @@ export class DatabaseStorage implements IStorage {
 
   async cancelSubscription(userId: string): Promise<void> {
     await db.update(subscriptions).set({ status: "cancelled", updatedAt: new Date() }).where(eq(subscriptions.userId, userId));
+  }
+
+  async createAutomationLog(jobName: string, triggeredBy: string): Promise<AutomationLog> {
+    const [log] = await db.insert(automationLogs).values({ jobName, triggeredBy, status: "running" }).returning();
+    return log;
+  }
+
+  async updateAutomationLog(id: string, status: string, message: string): Promise<void> {
+    await db.update(automationLogs).set({ status, message, completedAt: new Date() }).where(eq(automationLogs.id, id));
+  }
+
+  async getAutomationLogs(limit = 50): Promise<AutomationLog[]> {
+    return db.select().from(automationLogs).orderBy(desc(automationLogs.startedAt)).limit(limit);
+  }
+
+  async resetAiUsage(): Promise<number> {
+    const result = await db.delete(aiUsage).where(lt(aiUsage.day, new Date().toISOString().split("T")[0])).returning();
+    return result.length;
+  }
+
+  async expireSubscriptions(): Promise<number> {
+    const result = await db
+      .update(subscriptions)
+      .set({ status: "expired", updatedAt: new Date() })
+      .where(and(eq(subscriptions.status, "active"), lt(subscriptions.currentPeriodEnd!, new Date())))
+      .returning();
+    return result.length;
+  }
+
+  async cleanupPendingPayments(): Promise<number> {
+    const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
+    const result = await db
+      .update(subscriptions)
+      .set({ status: "failed", updatedAt: new Date() })
+      .where(and(eq(subscriptions.status, "pending"), lt(subscriptions.createdAt!, thirtyMinAgo)))
+      .returning();
+    return result.length;
   }
 }
 

@@ -338,6 +338,57 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/automations/logs", requireAdmin, async (req, res) => {
+    try {
+      const logs = await storage.getAutomationLogs(100);
+      res.json(logs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/automations/run", requireAdmin, async (req, res) => {
+    try {
+      const { jobName } = req.body;
+      if (!jobName) return res.status(400).json({ message: "Job name required" });
+
+      const validJobs = ["reset_ai_usage", "check_subscriptions", "cleanup_pending_payments"];
+      if (!validJobs.includes(jobName)) {
+        return res.status(400).json({ message: `Invalid job. Must be one of: ${validJobs.join(", ")}` });
+      }
+
+      const log = await storage.createAutomationLog(jobName, req.user!.email);
+
+      try {
+        let affectedCount = 0;
+        let resultMessage = "";
+
+        switch (jobName) {
+          case "reset_ai_usage":
+            affectedCount = await storage.resetAiUsage();
+            resultMessage = `AI usage reset completed. ${affectedCount} old records removed.`;
+            break;
+          case "check_subscriptions":
+            affectedCount = await storage.expireSubscriptions();
+            resultMessage = `Subscription check completed. ${affectedCount} subscriptions expired.`;
+            break;
+          case "cleanup_pending_payments":
+            affectedCount = await storage.cleanupPendingPayments();
+            resultMessage = `Pending payments cleanup completed. ${affectedCount} stale payments marked as failed.`;
+            break;
+        }
+
+        await storage.updateAutomationLog(log.id, "success", resultMessage);
+        res.json({ status: "success", message: resultMessage, logId: log.id });
+      } catch (jobErr: any) {
+        await storage.updateAutomationLog(log.id, "failed", jobErr.message);
+        res.status(500).json({ status: "failed", message: jobErr.message, logId: log.id });
+      }
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/subscription/cancel", requireAuth, async (req, res) => {
     try {
       await storage.cancelSubscription(req.user!.id);

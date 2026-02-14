@@ -50,6 +50,8 @@ A Website Builder SaaS application similar to Wix/Webflow. Users can create proj
 - `GET /api/admin/stats` - Platform statistics
 - `GET /api/admin/users` - All users
 - `GET /api/admin/projects` - All projects
+- `GET /api/admin/automations/logs` - Automation run history
+- `POST /api/admin/automations/run` - Trigger automation job
 
 ## Environment Variables
 - `DATABASE_URL` - PostgreSQL connection string
@@ -59,13 +61,17 @@ A Website Builder SaaS application similar to Wix/Webflow. Users can create proj
 - `RAZORPAY_WEBHOOK_SECRET` - Razorpay webhook secret (optional)
 
 ## Builder Component Types
-hero, section, heading, text, button, image, divider, spacer, features
+hero, section, heading, text, button, image, divider, spacer, features, navbar, footer, product-card, pricing-table, contact-form, testimonials, gallery, video, faq, stats, team, social-links, banner, countdown, newsletter, logo-cloud, cta
 
-## Automation Scripts (automation/)
-- `reset-ai-usage.ts` - Daily AI usage reset
-- `check-subscriptions.ts` - Expire overdue subscriptions
-- `cleanup-pending-payments.ts` - Fail stale pending payments
-- `index.ts` - Entry runner (uses JOB_NAME env var)
+## Website Templates
+Blank, E-Commerce Store, SaaS Landing, Portfolio, Restaurant, Agency - available during project creation
+
+## Automation System
+- Database table `automation_logs` tracks all job executions with status, messages, and triggered-by info
+- Admin can trigger jobs manually from the Automations tab in admin panel
+- API: `GET /api/admin/automations/logs`, `POST /api/admin/automations/run`
+- Available jobs: reset_ai_usage, check_subscriptions, cleanup_pending_payments
+- Legacy scripts in `automation/` directory for cron-based execution
 
 ## Admin Setup
 To make a user admin: `UPDATE users SET role='admin' WHERE email='admin@example.com';`
