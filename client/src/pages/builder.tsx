@@ -93,15 +93,27 @@ function CanvasDropZone({
             <div className="flex items-center gap-2 flex-wrap justify-center">
               <Button variant="outline" size="sm" onClick={() => onAddBlock("hero")} data-testid="button-add-hero">
                 <Plus className="w-3.5 h-3.5 mr-1" />
-                Add Hero
+                Hero
               </Button>
-              <Button variant="outline" size="sm" onClick={() => onAddBlock("heading")} data-testid="button-add-heading">
+              <Button variant="outline" size="sm" onClick={() => onAddBlock("navbar")} data-testid="button-add-navbar">
                 <Plus className="w-3.5 h-3.5 mr-1" />
-                Add Heading
+                Navbar
               </Button>
-              <Button variant="outline" size="sm" onClick={() => onAddBlock("text")} data-testid="button-add-text">
+              <Button variant="outline" size="sm" onClick={() => onAddBlock("product-card")} data-testid="button-add-product">
                 <Plus className="w-3.5 h-3.5 mr-1" />
-                Add Text
+                Products
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => onAddBlock("contact-form")} data-testid="button-add-contact">
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                Contact
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => onAddBlock("pricing-table")} data-testid="button-add-pricing">
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                Pricing
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => onAddBlock("footer")} data-testid="button-add-footer">
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                Footer
               </Button>
             </div>
           </div>
@@ -138,6 +150,8 @@ function createDefaultBlock(type: string): ComponentBlock {
   const id = nanoid(8);
   const defaults: Record<string, any> = {
     hero: { title: "Welcome to Your Website", subtitle: "Build something amazing with our drag-and-drop builder", buttonText: "Get Started" },
+    navbar: { brand: "MyBrand", links: [{ label: "Home", url: "#" }, { label: "Products", url: "#" }, { label: "About", url: "#" }, { label: "Contact", url: "#" }], ctaText: "Sign Up" },
+    footer: { columns: [{ title: "Company", links: ["About", "Careers", "Blog"] }, { title: "Support", links: ["Help Center", "Contact", "FAQ"] }, { title: "Legal", links: ["Privacy", "Terms", "Cookies"] }], copyright: "2025 Your Company. All rights reserved." },
     section: { title: "New Section" },
     heading: { text: "Heading", align: "left" },
     text: { text: "Add your content here. This is a paragraph block that you can customize.", align: "left" },
@@ -145,13 +159,22 @@ function createDefaultBlock(type: string): ComponentBlock {
     image: { src: "", alt: "Image", height: "200px" },
     divider: {},
     spacer: { height: "40px" },
-    features: {
-      features: [
-        { title: "Feature 1", desc: "Description of feature one" },
-        { title: "Feature 2", desc: "Description of feature two" },
-        { title: "Feature 3", desc: "Description of feature three" },
-      ],
-    },
+    features: { features: [{ title: "Feature 1", desc: "Description of feature one" }, { title: "Feature 2", desc: "Description of feature two" }, { title: "Feature 3", desc: "Description of feature three" }] },
+    "product-card": { products: [{ name: "Product 1", price: "$29.99", description: "Amazing product", image: "" }, { name: "Product 2", price: "$49.99", description: "Premium quality", image: "" }, { name: "Product 3", price: "$19.99", description: "Best seller", image: "" }] },
+    "pricing-table": { plans: [{ name: "Basic", price: "$9/mo", features: ["5 Products", "Basic Analytics", "Email Support"], highlighted: false }, { name: "Pro", price: "$29/mo", features: ["Unlimited Products", "Advanced Analytics", "Priority Support", "Custom Domain"], highlighted: true }, { name: "Enterprise", price: "$99/mo", features: ["Everything in Pro", "Dedicated Manager", "SLA", "API Access"], highlighted: false }] },
+    "contact-form": { title: "Get in Touch", subtitle: "We'd love to hear from you", buttonText: "Send Message" },
+    testimonials: { testimonials: [{ name: "Sarah J.", role: "CEO", quote: "This product changed our business completely!" }, { name: "Mike R.", role: "Designer", quote: "The best tool I've used in my career." }, { name: "Lisa K.", role: "Developer", quote: "Incredible experience from start to finish!" }] },
+    gallery: { count: 8 },
+    video: { url: "", height: "300px" },
+    faq: { title: "Frequently Asked Questions", items: [{ question: "What is your return policy?", answer: "30-day money-back guarantee." }, { question: "How long does shipping take?", answer: "3-5 business days." }, { question: "Do you offer support?", answer: "Yes, 24/7 via chat and email." }] },
+    stats: { stats: [{ value: "10K+", label: "Customers" }, { value: "99.9%", label: "Uptime" }, { value: "50+", label: "Countries" }, { value: "24/7", label: "Support" }] },
+    team: { members: [{ name: "John Doe", role: "CEO", bio: "Visionary leader" }, { name: "Jane Smith", role: "CTO", bio: "Tech innovator" }, { name: "Alex Chen", role: "Designer", bio: "Creative mind" }, { name: "Sam Wilson", role: "Marketing", bio: "Growth expert" }] },
+    "social-links": { links: [{ platform: "Twitter", url: "#" }, { platform: "Facebook", url: "#" }, { platform: "Instagram", url: "#" }, { platform: "LinkedIn", url: "#" }] },
+    banner: { text: "Special offer: Get 20% off today!", linkText: "Shop Now", variant: "info" },
+    countdown: { title: "Coming Soon", subtitle: "Something amazing is on the way", targetDate: "" },
+    newsletter: { title: "Stay Updated", subtitle: "Subscribe to our newsletter for the latest updates", buttonText: "Subscribe" },
+    "logo-cloud": { title: "Trusted by leading companies", logos: ["Company A", "Company B", "Company C", "Company D", "Company E"] },
+    cta: { title: "Ready to Get Started?", subtitle: "Join thousands of satisfied customers today", primaryButton: "Get Started", secondaryButton: "Learn More" },
   };
   return { id, type: type as ComponentBlock["type"], props: defaults[type] || {} };
 }

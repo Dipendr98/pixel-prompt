@@ -76,7 +76,12 @@ export type InsertSupportTicket = z.infer<typeof insertSupportTicketSchema>;
 
 export const componentSchema = z.object({
   id: z.string(),
-  type: z.enum(["hero", "section", "heading", "text", "button", "image", "divider", "spacer", "features"]),
+  type: z.enum([
+    "hero", "section", "heading", "text", "button", "image", "divider", "spacer", "features",
+    "navbar", "footer", "product-card", "pricing-table", "contact-form", "testimonials",
+    "gallery", "video", "faq", "stats", "team", "social-links", "banner", "countdown", "newsletter",
+    "logo-cloud", "cta",
+  ]),
   props: z.record(z.any()).optional(),
   children: z.array(z.any()).optional(),
 });
