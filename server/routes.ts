@@ -347,6 +347,55 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/admin/users/:id/role", requireAdmin, async (req, res) => {
+    try {
+      const { role } = req.body;
+      if (!role || !["user", "admin"].includes(role)) return res.status(400).json({ message: "Invalid role" });
+      if (req.params.id === req.user!.id) return res.status(400).json({ message: "Cannot change your own role" });
+      await storage.updateUserRole(req.params.id as string, role);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/admin/users/:id", requireAdmin, async (req, res) => {
+    try {
+      if (req.params.id === req.user!.id) return res.status(400).json({ message: "Cannot delete yourself" });
+      await storage.deleteUserAdmin(req.params.id as string);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/admin/projects/:id", requireAdmin, async (req, res) => {
+    try {
+      await storage.deleteProjectAdmin(req.params.id as string);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/subscriptions", requireAdmin, async (req, res) => {
+    try {
+      const subs = await storage.getAllSubscriptions();
+      res.json(subs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/activity", requireAdmin, async (req, res) => {
+    try {
+      const activity = await storage.getRecentActivity(20);
+      res.json(activity);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/admin/automations/run", requireAdmin, async (req, res) => {
     try {
       const { jobName } = req.body;

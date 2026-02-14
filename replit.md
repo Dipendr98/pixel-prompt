@@ -21,7 +21,7 @@ A Website Builder SaaS application similar to Wix/Webflow. Users can create proj
 - `/billing` - Plans & payment with cancel option (protected)
 - `/submissions` - User's submissions (protected)
 - `/support` - Support tickets (protected)
-- `/admin/submissions` - Full admin panel with stats, tickets, projects, users (protected, admin only)
+- `/admin/submissions` - Full admin dashboard with sidebar navigation, overview analytics, user/project/subscription management, submission review, support tickets, and automations (protected, admin only)
 
 ## Database Tables
 - `users` - Auth with email/password, role (user/admin)
@@ -50,6 +50,11 @@ A Website Builder SaaS application similar to Wix/Webflow. Users can create proj
 - `GET /api/admin/stats` - Platform statistics
 - `GET /api/admin/users` - All users
 - `GET /api/admin/projects` - All projects
+- `PATCH /api/admin/users/:id/role` - Toggle user role (admin/user)
+- `DELETE /api/admin/users/:id` - Delete user and all data
+- `DELETE /api/admin/projects/:id` - Delete project
+- `GET /api/admin/subscriptions` - All subscriptions
+- `GET /api/admin/activity` - Recent platform activity feed
 - `GET /api/admin/automations/logs` - Automation run history
 - `POST /api/admin/automations/run` - Trigger automation job
 
