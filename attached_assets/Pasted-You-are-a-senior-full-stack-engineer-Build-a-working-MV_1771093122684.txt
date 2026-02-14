@@ -1,0 +1,154 @@
+You are a senior full-stack engineer. Build a working MVP of a “Website Builder” SaaS like Wix/Webflow with:
+1) Login/Signup
+2) Dashboard with “+ New Project”
+3) Builder page with 3 columns:
+   - Left: component library (Section, Heading, Text, Button, Image, Spacer, Divider, Hero block, Feature block)
+   - Center: canvas where user can drag/drop components, reorder, select, edit styles
+   - Right: AI assistant chat to generate sections and copy as structured JSON that updates the canvas
+4) Billing page with Razorpay payments (TEST mode). Gate Export + AI credits to Pro.
+5) Export: generate a ZIP that contains a static site (index.html + styles.css).
+6) “Submit to Team” stores a submission record for admins.
+
+STACK (must follow):
+- Next.js 14+ App Router, TypeScript
+- TailwindCSS + shadcn/ui
+- Supabase for Auth + Postgres + Storage
+- Drag & Drop: dnd-kit
+- Validation: Zod
+- ZIP export: jszip
+- Razorpay integration: razorpay npm package on server + Razorpay Checkout script on client
+- Use env vars. Provide .env.example.
+
+CORE PAGES:
+- /auth/login
+- /auth/signup
+- /dashboard (protected)
+- /builder/[projectId] (protected)
+- /billing (protected)
+- /admin/submissions (admin only)
+
+AUTH:
+- Use Supabase Auth (email/password).
+- Create profiles table with role: 'user' or 'admin'. Default 'user'.
+
+DASHBOARD:
+- Show user projects list.
+- “+” creates project.
+- Delete project.
+
+BUILDER:
+- 3-column layout:
+  Left = draggable blocks
+  Center = canvas (drop blocks, reorder, select)
+  Right = AI Chat + Properties editor (tabs OK)
+- Component types: hero, section, heading, text, button, image, divider, spacer, features
+- Keep page schema as JSON (stored in projects.schema JSONB).
+- Autosave schema to Supabase (debounce 1s).
+- Undo/redo (simple in-memory history is OK).
+
+AI PANEL:
+- Create /api/ai route (server) that calls an LLM if OPENAI_API_KEY exists; otherwise mock.
+- AI must output VALID JSON schema ONLY.
+- Validate AI output with Zod before applying.
+- Free users: max 3 AI calls/day.
+- Pro users: unlimited AI calls.
+
+BILLING / RAZORPAY (IMPORTANT):
+- Implement “Pro plan” using Razorpay payments.
+- Use either:
+  (A) Razorpay Subscriptions (recommended) OR
+  (B) Razorpay Orders + manual subscription state
+Choose A if possible; otherwise B.
+- Use TEST keys. Provide steps in README for creating plan in Razorpay dashboard if needed.
+- Billing page shows Free vs Pro, with “Upgrade to Pro”.
+
+Payment flow required (minimum):
+1) Client clicks Upgrade.
+2) Server route creates a Razorpay order (or subscription) using razorpay npm package.
+3) Client opens Razorpay Checkout (use https://checkout.razorpay.com/v1/checkout.js).
+4) On success, client sends payment_id/order_id/signature to server verify route.
+5) Server verifies signature using RAZORPAY_KEY_SECRET.
+6) On verification success, server updates Supabase subscriptions table: status='active', provider='razorpay', started_at, updated_at.
+7) Also add Razorpay webhook endpoint /api/razorpay/webhook:
+   - Verify webhook signature using RAZORPAY_WEBHOOK_SECRET
+   - Handle events like payment.captured / subscription.activated / subscription.cancelled (depending on chosen method)
+   - Update subscription status accordingly.
+
+Feature gating:
+- Free users cannot export ZIP.
+- Free users have only 3 AI calls/day.
+- Pro users can export ZIP and unlimited AI.
+
+EXPORT:
+- Server route /api/export/[projectId]:
+  - Check subscription is active
+  - Load saved schema
+  - Generate index.html + styles.css based on schema
+  - Package into zip using JSZip
+  - Return as download response
+
+SUBMIT TO TEAM:
+- Builder has “Submit to Team” button.
+- Saves submissions row: project_id, user_id, notes, status='new', created_at.
+- Users can see their own submissions list (optional).
+- Admin page lists all submissions and can change status.
+
+DATABASE (Supabase tables):
+- profiles (id uuid primary key references auth.users.id, role text default 'user', created_at)
+- projects (id uuid pk, user_id uuid, name text, schema jsonb, created_at, updated_at)
+- subscriptions (user_id uuid pk, provider text, status text, razorpay_customer_id text, razorpay_subscription_id text, current_period_end timestamptz, updated_at)
+- ai_usage (id uuid pk, user_id uuid, day date, count int)
+- submissions (id uuid pk, project_id uuid, user_id uuid, notes text, status text, created_at, updated_at)
+
+RLS POLICIES:
+- projects: user can CRUD only where user_id = auth.uid()
+- subscriptions: user can read only own row; server can update via service role
+- ai_usage: user can read only own
+- submissions: user can create & read own; admin can read all
+- profiles: user can read own; admin can read all
+
+SERVER-SIDE SUPABASE:
+- Use SUPABASE_SERVICE_ROLE_KEY for webhook and verification routes ONLY.
+- Never expose service role to client.
+
+FILES TO OUTPUT:
+- /supabase/schema.sql (tables + indexes)
+- /supabase/rls.sql (RLS + policies)
+- /src/lib/supabase/client.ts (anon client)
+- /src/lib/supabase/server.ts (service role client)
+- /src/app/auth/login/page.tsx
+- /src/app/auth/signup/page.tsx
+- /src/app/dashboard/page.tsx
+- /src/app/builder/[projectId]/page.tsx
+- /src/app/billing/page.tsx
+- /src/app/admin/submissions/page.tsx
+- /src/app/api/ai/route.ts
+- /src/app/api/razorpay/order/route.ts (create order/subscription)
+- /src/app/api/razorpay/verify/route.ts (verify signature & activate)
+- /src/app/api/razorpay/webhook/route.ts (verify webhook signature & update subscription)
+- /src/app/api/export/[projectId]/route.ts
+- /src/app/api/submissions/route.ts
+- README.md with exact setup steps
+- .env.example
+
+READ ME MUST INCLUDE:
+- How to set Supabase keys and run migrations
+- How to set Razorpay TEST keys:
+  RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET
+- How to create Razorpay webhook and which events to enable
+- How to test payment in test mode
+- How to set one admin:
+  update profiles set role='admin' where id='YOUR_USER_UUID';
+
+MOCK MODES:
+- If Razorpay keys missing, show “Payments disabled” but app should still run.
+- If OpenAI key missing, AI returns a mock valid schema.
+
+QUALITY:
+- Use TypeScript types.
+- Use Zod for schema validation.
+- Proper error handling + loading states.
+- Keep components modular.
+- Keep code clean and runnable.
+
+Start now and generate the complete repo with all code and files.

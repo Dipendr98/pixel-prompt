@@ -1,0 +1,141 @@
+You are a senior backend engineer.
+
+Add background automation jobs to my existing Next.js + Supabase + Razorpay SaaS project.
+
+Use Node.js server-side scripts (not client side).
+Use Supabase service role key securely (never expose to client).
+
+Create a folder:
+
+/automation
+
+Inside it create:
+
+1) reset-ai-usage.ts
+2) check-subscriptions.ts
+3) cleanup-pending-payments.ts
+4) index.ts (entry runner)
+
+----------------------------
+JOB 1: DAILY AI USAGE RESET
+----------------------------
+
+File: reset-ai-usage.ts
+
+Function:
+- Runs once per day at 00:05 IST
+- Deletes or resets ai_usage rows where day < current_date
+- Keep only today’s usage
+
+Logic:
+- Connect using SUPABASE_SERVICE_ROLE_KEY
+- Execute:
+    DELETE FROM ai_usage WHERE day < CURRENT_DATE;
+
+Add console logs:
+- "AI usage reset completed"
+- Number of rows affected
+
+----------------------------
+JOB 2: CHECK SUBSCRIPTIONS
+----------------------------
+
+File: check-subscriptions.ts
+
+Function:
+- Runs every hour
+- Find subscriptions where:
+    status = 'active'
+    AND current_period_end < now()
+
+- Update them:
+    status = 'expired'
+
+- Log how many were updated.
+
+----------------------------
+JOB 3: CLEANUP PENDING PAYMENTS
+----------------------------
+
+File: cleanup-pending-payments.ts
+
+Function:
+- Runs every 30 minutes
+- Find subscriptions with:
+    status = 'pending'
+    AND created_at < now() - interval '30 minutes'
+
+- Mark them as:
+    status = 'failed'
+
+This prevents unpaid Razorpay orders from staying open forever.
+
+----------------------------
+ENTRY RUNNER
+----------------------------
+
+File: index.ts
+
+Import all jobs and execute based on process.env.JOB_NAME
+
+Example:
+
+if (process.env.JOB_NAME === "RESET_AI") {
+   await resetAIUsage()
+}
+
+if (process.env.JOB_NAME === "CHECK_SUBS") {
+   await checkSubscriptions()
+}
+
+if (process.env.JOB_NAME === "CLEANUP_PAYMENTS") {
+   await cleanupPendingPayments()
+}
+
+----------------------------
+CRON CONFIGURATION
+----------------------------
+
+Provide instructions in README on how to set Replit Automations:
+
+1) Daily at 00:05
+   Command:
+   JOB_NAME=RESET_AI node automation/index.js
+
+2) Every 1 hour
+   Command:
+   JOB_NAME=CHECK_SUBS node automation/index.js
+
+3) Every 30 minutes
+   Command:
+   JOB_NAME=CLEANUP_PAYMENTS node automation/index.js
+
+----------------------------
+ENV VARIABLES REQUIRED
+----------------------------
+
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+
+----------------------------
+SAFETY REQUIREMENTS
+----------------------------
+
+- Never use anon key.
+- Only use service role inside automation scripts.
+- Add try/catch blocks.
+- Log errors properly.
+- Exit process safely.
+
+----------------------------
+BONUS (OPTIONAL)
+----------------------------
+
+Add a function:
+- notifyAdminIfExpiredSubscriptions()
+- If more than 10 expired in one run → log warning.
+
+----------------------------
+
+Generate all files with full working TypeScript code.
+Keep it clean and production ready.
