@@ -4,12 +4,51 @@ import { storage } from "./storage";
 import { setupAuth, requireAuth, requireAdmin } from "./auth";
 import { nanoid } from "nanoid";
 import crypto from "crypto";
+import { migrateProjectSchema } from "@shared/schema";
+import type { ProjectData, PageData } from "@shared/schema";
+import path from "path";
+import fs from "fs";
+import { sendPaymentSuccessEmail, sendQueryNotificationToAdmin, sendQueryResponseToUser } from "./mail";
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
   setupAuth(app);
+
+  // --- File Upload ---
+  const uploadsDir = path.resolve(process.cwd(), "uploads");
+  if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+  app.use("/uploads", (await import("express")).default.static(uploadsDir));
+
+  app.post("/api/upload", requireAuth, async (req, res) => {
+    try {
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk: Buffer) => chunks.push(chunk));
+      req.on("end", () => {
+        const buffer = Buffer.concat(chunks);
+        const contentType = req.headers["content-type"] || "";
+        const boundary = contentType.split("boundary=")[1];
+        if (!boundary) { res.status(400).json({ message: "No multipart boundary" }); return; }
+        const parts = buffer.toString("binary").split("--" + boundary);
+        for (const part of parts) {
+          const headerEnd = part.indexOf("\r\n\r\n");
+          if (headerEnd < 0) continue;
+          const headers = part.substring(0, headerEnd);
+          const filenameMatch = headers.match(/filename="([^"]+)"/);
+          if (!filenameMatch) continue;
+          const ext = path.extname(filenameMatch[1]) || ".png";
+          const fname = nanoid(12) + ext;
+          const body = part.substring(headerEnd + 4);
+          const trimmed = body.endsWith("\r\n") ? body.slice(0, -2) : body;
+          fs.writeFileSync(path.join(uploadsDir, fname), trimmed, "binary");
+          res.json({ url: "/uploads/" + fname });
+          return;
+        }
+        res.status(400).json({ message: "No file found in upload" });
+      });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
 
   app.get("/api/projects", requireAuth, async (req, res) => {
     try {
@@ -81,11 +120,11 @@ export async function registerRoutes(
       const today = new Date().toISOString().split("T")[0];
       await storage.incrementAiUsage(userId, today);
 
-      const blocks = generateMockBlocks(prompt);
+      const result = await callAI(prompt);
 
       res.json({
-        message: `Generated ${blocks.length} block(s) based on your request.`,
-        blocks,
+        message: result.message,
+        blocks: result.blocks,
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -150,7 +189,68 @@ export async function registerRoutes(
         currentPeriodEnd: periodEnd,
       });
 
+      // Send Payment Success Email
+      await sendPaymentSuccessEmail(req.user!.email, 900 * 100);
+
       res.json({ ok: true, status: "active" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/queries", async (req, res) => {
+    try {
+      const { name, email, subject, message } = req.body;
+      if (!name || !email || !subject || !message) {
+        return res.status(400).json({ message: "All fields are required" });
+      }
+      const query = await storage.createUserQuery({ name, email, subject, message });
+      await sendQueryNotificationToAdmin(name, email, subject, message);
+      res.json(query);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/queries", requireAdmin, async (req, res) => {
+    try {
+      const queries = await storage.getAllUserQueries();
+      res.json(queries);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/queries/:id/respond", requireAdmin, async (req, res) => {
+    try {
+      const { reply } = req.body;
+      if (!reply) return res.status(400).json({ message: "Reply message required" });
+
+      const queries = await storage.getAllUserQueries();
+      const query = queries.find((q: any) => q.id === req.params.id);
+      if (!query) return res.status(404).json({ message: "Query not found" });
+
+      await storage.updateUserQueryReply(query.id, reply);
+      await sendQueryResponseToUser(query.email, query.subject, reply);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/site-settings", async (req, res) => {
+    try {
+      const settings = await storage.getSiteSettings();
+      res.json(settings);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/admin/site-settings", requireAdmin, async (req, res) => {
+    try {
+      const settings = await storage.updateSiteSettings(req.body);
+      res.json(settings);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -199,25 +299,163 @@ export async function registerRoutes(
     try {
       const userId = req.user!.id;
       const sub = await storage.getSubscription(userId);
-      if (sub?.status !== "active") {
-        return res.status(403).send("Export requires Pro subscription");
-      }
 
       const project = await storage.getProject(req.params.projectId as string, userId);
       if (!project) return res.status(404).send("Project not found");
 
-      const schema = Array.isArray(project.schema) ? (project.schema as any[]) : [];
-      const { html, css } = generateStaticSite(project.name, schema);
+      const data = migrateProjectSchema(project.schema);
+      const css = generateCSS(data.settings || {});
 
       const JSZip = (await import("jszip")).default;
+      const beautify = (await import("js-beautify")).default;
       const zip = new JSZip();
-      zip.file("index.html", html);
-      zip.file("styles.css", css);
+
+      // Format and add CSS
+      const formattedCss = beautify.css(css, { indent_size: 2 });
+      zip.folder("css")?.file("style.css", formattedCss);
+
+      // Create and format JS snippet
+      const scriptJs = `
+        const observer = new IntersectionObserver((entries) => {
+          entries.forEach(entry => {
+            if (entry.isIntersecting) {
+              const anim = entry.target.getAttribute('data-animate');
+              if (anim) entry.target.classList.add('animate-' + anim);
+              observer.unobserve(entry.target);
+            }
+          });
+        }, { threshold: 0.1 });
+        document.querySelectorAll('[data-animate]').forEach(el => observer.observe(el));
+      `;
+      const formattedJs = beautify.js(scriptJs, { indent_size: 2 });
+      zip.folder("js")?.file("script.js", formattedJs);
+
+      // Generate pages
+      for (const page of data.pages) {
+        const bodyHtml = generatePageHtml(page.blocks);
+        const filename = page.path === "/" ? "index.html" : page.path.replace(/^\//, "") + ".html";
+        const seo = page.seo || {};
+
+        const rawHtml = `<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>${escHtml(seo.title || page.name + " - " + project.name)}</title>\n  ${seo.description ? `<meta name="description" content="${escHtml(seo.description)}">` : ""}\n  ${seo.ogImage ? `<meta property="og:image" content="${escHtml(seo.ogImage)}">` : ""}\n  <link rel="stylesheet" href="css/style.css">\n</head>\n<body>\n${bodyHtml}\n<script src="js/script.js"></script>\n</body>\n</html>`;
+
+        // Let js-beautify handle all indentation and spacing beautifully
+        const formattedHtml = beautify.html(rawHtml, {
+          indent_size: 2,
+          preserve_newlines: true,
+          max_preserve_newlines: 1,
+          wrap_line_length: 120
+        });
+
+        zip.file(filename, formattedHtml);
+      }
 
       const buffer = await zip.generateAsync({ type: "nodebuffer" });
+      const downloadName = (project.name === project.id || project.name.length >= 30) ? "PixelPrompt-Export" : project.name;
       res.set({
         "Content-Type": "application/zip",
-        "Content-Disposition": `attachment; filename="${project.name}.zip"`,
+        "Content-Disposition": `attachment; filename="${downloadName}.zip"`,
+      });
+      res.send(buffer);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  // Export as Next.js React Application
+  app.get("/api/export-next/:projectId", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const project = await storage.getProject(req.params.projectId as string, userId);
+      if (!project) return res.status(404).send("Project not found");
+
+      const data = migrateProjectSchema(project.schema);
+      const css = generateCSS(data.settings || {});
+
+      const JSZip = (await import("jszip")).default;
+      const beautify = (await import("js-beautify")).default;
+      const zip = new JSZip();
+
+      // Convert HTML strings to JSX
+      const htmlToJsx = (html: string) => {
+        return html
+          .replace(/class=/g, "className=")
+          .replace(/for=/g, "htmlFor=")
+          .replace(/frameborder="0"/g, 'frameBorder="0"')
+          .replace(/allowfullscreen/g, "allowFullScreen")
+          .replace(/<!--([\s\S]*?)-->/g, "{/*$1*/}")
+          .replace(/style="([^"]*)"/g, (match, styleString) => {
+            const styleObj: Record<string, string> = {};
+            styleString.split(';').forEach((rule: string) => {
+              if (!rule.trim()) return;
+              const parts = rule.split(':');
+              if (parts.length >= 2) {
+                const key = parts[0].trim();
+                const value = parts.slice(1).join(':').trim();
+                const camelKey = key.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
+                styleObj[camelKey] = value;
+              }
+            });
+            return `style={${JSON.stringify(styleObj)}}`;
+          });
+      };
+
+      // Boilerplate package.json
+      const packageJson = {
+        name: project.name.toLowerCase().replace(/[^a-z0-9]/g, '-'),
+        version: "0.1.0",
+        private: true,
+        scripts: {
+          dev: "next dev",
+          build: "next build",
+          start: "next start"
+        },
+        dependencies: {
+          "next": "14.2.3",
+          "react": "^18",
+          "react-dom": "^18"
+        },
+        devDependencies: {
+          "@types/node": "^20",
+          "@types/react": "^18",
+          "@types/react-dom": "^18",
+          "typescript": "^5"
+        }
+      };
+      zip.file("package.json", JSON.stringify(packageJson, null, 2));
+
+      // Boilerplate config files
+      zip.file("tsconfig.json", JSON.stringify({
+        compilerOptions: { lib: ["dom", "dom.iterable", "esnext"], allowJs: true, skipLibCheck: true, strict: true, noEmit: true, esModuleInterop: true, module: "esnext", moduleResolution: "bundler", resolveJsonModule: true, isolatedModules: true, jsx: "preserve", incremental: true, plugins: [{ name: "next" }], paths: { "@/*": ["./*"] } },
+        include: ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+        exclude: ["node_modules"]
+      }, null, 2));
+
+      zip.file("next.config.mjs", `/** @type {import('next').NextConfig} */\nconst nextConfig = {};\nexport default nextConfig;\n`);
+
+      // CSS and Layout
+      zip.folder("app")?.file("globals.css", beautify.css(css, { indent_size: 2 }));
+
+      const layoutTsx = `import type { Metadata } from 'next'\nimport './globals.css'\n\nexport const metadata: Metadata = {\n  title: '${escHtml(project.name)}',\n  description: 'Generated by PixelPrompt AI',\n}\n\nexport default function RootLayout({\n  children,\n}: {\n  children: React.ReactNode\n}) {\n  return (\n    <html lang="en">\n      <body>{children}</body>\n    </html>\n  )\n}\n`;
+      zip.folder("app")?.file("layout.tsx", layoutTsx);
+
+      // Generate Pages
+      for (const page of data.pages) {
+        const bodyHtml = generatePageHtml(page.blocks);
+        const bodyJsx = htmlToJsx(bodyHtml);
+
+        const folderName = page.path === "/" ? "app" : `app${page.path.replace(/\/$/, "")}`;
+
+        let clientComponentWrapper = `"use client";\n\nimport { useEffect } from "react";\n\nexport default function Page() {\n  useEffect(() => {\n    const observer = new IntersectionObserver((entries) => {\n      entries.forEach(entry => {\n        if (entry.isIntersecting) {\n          const anim = entry.target.getAttribute('data-animate');\n          if (anim) entry.target.classList.add('animate-' + anim);\n          observer.unobserve(entry.target);\n        }\n      });\n    }, { threshold: 0.1 });\n    document.querySelectorAll('[data-animate]').forEach(el => observer.observe(el));\n    return () => observer.disconnect();\n  }, []);\n\n  return (\n    <main>\n      ${bodyJsx}\n    </main>\n  );\n}\n`;
+
+        const formattedComponent = beautify.js(clientComponentWrapper, { indent_size: 2, e4x: true });
+        zip.folder(folderName)?.file("page.tsx", formattedComponent);
+      }
+
+      const buffer = await zip.generateAsync({ type: "nodebuffer" });
+      const downloadName = (project.name === project.id || project.name.length >= 30) ? "PixelPrompt-NextJS" : `${project.name}-nextjs`;
+      res.set({
+        "Content-Type": "application/zip",
+        "Content-Disposition": `attachment; filename="${downloadName}.zip"`,
       });
       res.send(buffer);
     } catch (err: any) {
@@ -450,7 +688,197 @@ export async function registerRoutes(
   return httpServer;
 }
 
-function generateMockBlocks(prompt: string): any[] {
+async function callAI(prompt: string): Promise<{ blocks: any[]; message: string }> {
+  const primaryApiKey = process.env.NVIDIA_API_KEY;
+  const secondaryApiKey = "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";
+
+  if (!primaryApiKey && !secondaryApiKey) {
+    throw new Error("AI service is not configured. Please contact the administrator.");
+  }
+
+  const systemPrompt = `You are an expert web developer and UI designer for a drag-and-drop website builder.
+When given a user description, generate a complete, high-quality website layout (maximum 9 blocks).
+
+CRITICAL SPEED OPTIMIZATIONS:
+1. You MUST return aggressively MINIFIED JSON. Absolutely NO spaces, NO newlines, NO pretty-printing.
+2. Keep all generated text copy extremely punchy and short (maximum 8-10 words per text field).
+3. Do NOT include markdown formatting like \`\`\`json. Return ONLY the raw JSON array starting with '[' and ending with ']'.
+
+Each block must follow this exact format:
+{"id":"8charstr","type":"blocktype","props":{...},"style":{"animation":"...","backgroundColor":"...","textColor":"...","padding":"...","borderRadius":"...","customCss":"..."}}
+
+Your design tasks:
+1. **VIBRANT DESIGN**: Provide a \`style\` object for EVERY block. Use modern, beautiful, highly vibrant colors (e.g. #0f172a, #3b82f6) for \`backgroundColor\`, with high contrast \`textColor\`.
+2. **CUSTOM CSS ANIMATIONS**: You MUST assign an entrance animation to EVERY block using raw, inline CSS inside the \`style.customCss\` string property. Write actual CSS rules (e.g. \`animation:slideUp 0.8s ease-out forwards;opacity:0;\`). Keep CSS short and optimized.
+3. **Valid block types and props (KEEP PROPS SHORT):**
+- hero: {title, subtitle, buttonText}
+- navbar: {brand, links: [{label, url}], ctaText}
+- footer: {columns: [{title, links: [string]}], copyright}
+- features: {features: [{title, desc}]}
+- testimonials: {testimonials: [{name, role, quote}]}
+- pricing-table: {plans: [{name, price, features: [string], highlighted: boolean}]}
+- stats: {stats: [{value, label}]}
+- team: {members: [{name, role, bio}]}
+- gallery: {count: number}
+- faq: {title, items: [{question, answer}]}
+- contact-form: {title, subtitle, buttonText}
+- newsletter: {title, subtitle, buttonText}
+- logo-cloud: {title, logos: [string]}
+- cta: {title, subtitle, primaryButton, secondaryButton}
+- banner: {text, variant: "info"|"warning"|"error"}
+- heading: {text, align: "left"|"center"|"right"}
+- text: {text, align: "left"|"center"|"right"}
+- button: {text, url, align: "left"|"center"|"right"}
+- image: {src, alt, height}
+- divider: {}
+- spacer: {height}
+- countdown: {title, subtitle, targetDate}
+- product-card: {products: [{name, price, description, image}]}
+- social-links: {links: [{platform, url}]}
+- video: {url, height}
+- blog-post: {title, excerpt, author, date, category, image}
+- blog-list: {title, posts: [{title, excerpt, author, date, category}]}
+- cart: {items: [{name, price, quantity}], showCheckout: boolean}
+- checkout-form: {title, subtitle, buttonText}
+- map: {address, zoom, height}
+- booking-form: {title, subtitle, buttonText, services: [string]}
+- login-form: {title, subtitle, buttonText, showSignup: boolean}
+
+Return ONLY the minified JSON array.`;
+
+
+
+  // Helper method with automatic fallback logic
+  const fetchWithFallback = async (messages: any[]) => {
+    // Primary request configuration - NO thinking parameter to drastically improve speed
+    const req1Body = {
+      model: "deepseek-ai/deepseek-v3.2",
+      messages: messages,
+      temperature: 1,
+      top_p: 0.95,
+      max_tokens: 8192,
+      stream: false,
+    };
+
+    // Secondary request configuration
+    const req2Body = {
+      model: "qwen/qwen3-coder-480b-a35b-instruct",
+      messages: messages,
+      temperature: 0.7,
+      top_p: 0.8,
+      max_tokens: 8192,
+      stream: false,
+    };
+
+    // Tertiary Request Configuration (Github Models)
+    const req3Body = {
+      model: "DeepSeek-R1",
+      messages: messages,
+      temperature: 1,
+      top_p: 0.95,
+      max_tokens: 8192,
+      stream: false,
+    };
+
+    let response = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${primaryApiKey} `,
+        "Accept": "application/json",
+      },
+      body: JSON.stringify(req1Body),
+    });
+
+    if (!response.ok) {
+      console.warn(`[AI] Primary model failed(${response.status}).Attempting fallback to Qwen...`);
+      response = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${secondaryApiKey} `,
+          "Accept": "application/json",
+        },
+        body: JSON.stringify(req2Body),
+      });
+
+      if (!response.ok) {
+        console.warn(`[AI] Secondary model failed(${response.status}).Attempting tertiary Github fallback...`);
+        response = await fetch("https://models.inference.ai.azure.com/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${tertiaryApiKey} `,
+            "Accept": "application/json",
+          },
+          body: JSON.stringify(req3Body),
+        });
+
+        if (!response.ok) {
+          const errText = await response.text().catch(() => "");
+          throw new Error(`AI total fallback failure(${response.status}): ${errText || response.statusText} `);
+        }
+      }
+    }
+    return response;
+  }
+
+  console.log("[AI] Generating website structure and copy in a single unified pass...");
+
+  const response = await fetchWithFallback([
+    { role: "system", content: systemPrompt },
+    { role: "user", content: prompt },
+  ]);
+
+  const data = await response.json();
+  let content: string =
+    data?.choices?.[0]?.message?.content ||
+    data?.choices?.[0]?.text ||
+    "";
+
+  if (!content) throw new Error("Empty response from AI Agent.");
+
+  content = content.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  console.log("[AI] Generation snippet:", content.substring(0, 300));
+
+  const jsonMatch = content.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) {
+    throw new Error("AI did not return valid block data.");
+  }
+
+  let finalBlocks: any[];
+  try {
+    finalBlocks = JSON.parse(jsonMatch[0]);
+  } catch {
+    throw new Error("Failed to parse AI response as JSON.");
+  }
+
+  if (!Array.isArray(finalBlocks) || finalBlocks.length === 0) {
+    throw new Error("AI returned empty blocks.");
+  }
+
+  const validTypes = [
+    "hero", "navbar", "footer", "features", "testimonials", "pricing-table",
+    "stats", "team", "gallery", "faq", "contact-form", "newsletter",
+    "logo-cloud", "cta", "banner", "heading", "text", "button", "image",
+    "divider", "spacer", "countdown", "product-card", "social-links", "video", "section",
+    "blog-post", "blog-list", "cart", "checkout-form", "map", "booking-form", "login-form",
+  ];
+
+  const validBlocks = finalBlocks.filter((b: any) => b && typeof b === "object" && validTypes.includes(b.type));
+  if (validBlocks.length === 0) {
+    throw new Error("AI returned blocks with unknown types.");
+  }
+
+  console.log("[AI] Multi-Agent generation complete.");
+  return {
+    blocks: validBlocks,
+    message: `Multi - agent generation complete.Generated and refined ${validBlocks.length} block(s).`,
+  };
+}
+
+// Legacy stub kept only so the file compiles — replaced by callAI above
+function _unused_generateMockBlocks(prompt: string): any[] {
   const lower = prompt.toLowerCase();
   const blocks: any[] = [];
 
@@ -471,21 +899,33 @@ function generateMockBlocks(prompt: string): any[] {
       { id: nanoid(8), type: "hero", props: { title: "Discover Amazing Products", subtitle: "Shop our curated collection of premium items. Free shipping on orders over $50.", buttonText: "Shop Now" } },
       { id: nanoid(8), type: "banner", props: { text: "FLASH SALE: Use code SAVE20 for 20% off everything!", linkText: "Shop the Sale", variant: "info" } },
       { id: nanoid(8), type: "heading", props: { text: "Featured Products", align: "center" } },
-      { id: nanoid(8), type: "product-card", props: { products: [
-        { name: "Wireless Headphones", price: "$79.99", description: "Premium noise-cancelling wireless headphones with 30hr battery", image: "" },
-        { name: "Smart Watch Pro", price: "$199.99", description: "Track your fitness, calls, and notifications on the go", image: "" },
-        { name: "Portable Speaker", price: "$49.99", description: "Waterproof Bluetooth speaker with 360-degree sound", image: "" },
-      ] } },
-      { id: nanoid(8), type: "features", props: { features: [
-        { title: "Free Shipping", desc: "On all orders over $50" },
-        { title: "Easy Returns", desc: "30-day money back guarantee" },
-        { title: "Secure Payment", desc: "256-bit SSL encryption" },
-      ] } },
-      { id: nanoid(8), type: "testimonials", props: { testimonials: [
-        { name: "Emma W.", role: "Verified Buyer", quote: "Amazing quality and fast shipping! Will definitely order again." },
-        { name: "David L.", role: "Verified Buyer", quote: "Best online shopping experience. Customer service is top-notch." },
-        { name: "Sarah M.", role: "Verified Buyer", quote: "Love the product! Exactly as described and arrived on time." },
-      ] } },
+      {
+        id: nanoid(8), type: "product-card", props: {
+          products: [
+            { name: "Wireless Headphones", price: "$79.99", description: "Premium noise-cancelling wireless headphones with 30hr battery", image: "" },
+            { name: "Smart Watch Pro", price: "$199.99", description: "Track your fitness, calls, and notifications on the go", image: "" },
+            { name: "Portable Speaker", price: "$49.99", description: "Waterproof Bluetooth speaker with 360-degree sound", image: "" },
+          ]
+        }
+      },
+      {
+        id: nanoid(8), type: "features", props: {
+          features: [
+            { title: "Free Shipping", desc: "On all orders over $50" },
+            { title: "Easy Returns", desc: "30-day money back guarantee" },
+            { title: "Secure Payment", desc: "256-bit SSL encryption" },
+          ]
+        }
+      },
+      {
+        id: nanoid(8), type: "testimonials", props: {
+          testimonials: [
+            { name: "Emma W.", role: "Verified Buyer", quote: "Amazing quality and fast shipping! Will definitely order again." },
+            { name: "David L.", role: "Verified Buyer", quote: "Best online shopping experience. Customer service is top-notch." },
+            { name: "Sarah M.", role: "Verified Buyer", quote: "Love the product! Exactly as described and arrived on time." },
+          ]
+        }
+      },
       { id: nanoid(8), type: "newsletter", props: { title: "Join Our Newsletter", subtitle: "Get exclusive deals and 10% off your first order", buttonText: "Subscribe" } },
       { id: nanoid(8), type: "footer", props: { columns: [{ title: "Shop", links: ["New Arrivals", "Best Sellers", "Sale", "Gift Cards"] }, { title: "Help", links: ["Shipping Info", "Returns", "Size Guide", "Track Order"] }, { title: "Company", links: ["About Us", "Careers", "Press", "Blog"] }], copyright: "2025 ShopHub. All rights reserved." } }
     );
@@ -494,18 +934,26 @@ function generateMockBlocks(prompt: string): any[] {
       { id: nanoid(8), type: "navbar", props: { brand: "Bella Cucina", links: [{ label: "Home", url: "#" }, { label: "Menu", url: "#menu" }, { label: "About", url: "#about" }, { label: "Gallery", url: "#gallery" }], ctaText: "Reserve Table" } },
       { id: nanoid(8), type: "hero", props: { title: "Authentic Italian Cuisine", subtitle: "Experience the finest handcrafted dishes made with fresh, locally-sourced ingredients. Dine in or order online.", buttonText: "View Menu" } },
       { id: nanoid(8), type: "heading", props: { text: "Our Signature Dishes", align: "center" } },
-      { id: nanoid(8), type: "product-card", props: { products: [
-        { name: "Truffle Risotto", price: "$28", description: "Arborio rice with wild mushrooms and black truffle", image: "" },
-        { name: "Grilled Sea Bass", price: "$34", description: "Fresh catch with lemon butter and capers", image: "" },
-        { name: "Tiramisu", price: "$14", description: "Classic Italian dessert with espresso and mascarpone", image: "" },
-      ] } },
+      {
+        id: nanoid(8), type: "product-card", props: {
+          products: [
+            { name: "Truffle Risotto", price: "$28", description: "Arborio rice with wild mushrooms and black truffle", image: "" },
+            { name: "Grilled Sea Bass", price: "$34", description: "Fresh catch with lemon butter and capers", image: "" },
+            { name: "Tiramisu", price: "$14", description: "Classic Italian dessert with espresso and mascarpone", image: "" },
+          ]
+        }
+      },
       { id: nanoid(8), type: "stats", props: { stats: [{ value: "15+", label: "Years of Experience" }, { value: "200+", label: "Menu Items" }, { value: "50K+", label: "Happy Diners" }, { value: "4.9", label: "Star Rating" }] } },
       { id: nanoid(8), type: "gallery", props: { count: 6 } },
-      { id: nanoid(8), type: "testimonials", props: { testimonials: [
-        { name: "Michael B.", role: "Food Critic", quote: "One of the finest Italian restaurants in the city. Every dish is a masterpiece." },
-        { name: "Jennifer L.", role: "Regular Guest", quote: "The ambiance and food quality are consistently excellent. Our go-to date night spot." },
-        { name: "Robert K.", role: "Chef", quote: "The passion for authentic flavors shines through in every plate." },
-      ] } },
+      {
+        id: nanoid(8), type: "testimonials", props: {
+          testimonials: [
+            { name: "Michael B.", role: "Food Critic", quote: "One of the finest Italian restaurants in the city. Every dish is a masterpiece." },
+            { name: "Jennifer L.", role: "Regular Guest", quote: "The ambiance and food quality are consistently excellent. Our go-to date night spot." },
+            { name: "Robert K.", role: "Chef", quote: "The passion for authentic flavors shines through in every plate." },
+          ]
+        }
+      },
       { id: nanoid(8), type: "contact-form", props: { title: "Make a Reservation", subtitle: "Call us or fill out the form below", buttonText: "Reserve Now" } },
       { id: nanoid(8), type: "footer", props: { columns: [{ title: "Hours", links: ["Mon-Thu: 11am-10pm", "Fri-Sat: 11am-11pm", "Sunday: 12pm-9pm"] }, { title: "Contact", links: ["(555) 123-4567", "info@bellacucina.com", "123 Main Street"] }, { title: "Follow Us", links: ["Instagram", "Facebook", "TripAdvisor"] }], copyright: "2025 Bella Cucina. All rights reserved." } }
     );
@@ -516,17 +964,25 @@ function generateMockBlocks(prompt: string): any[] {
       { id: nanoid(8), type: "logo-cloud", props: { title: "Trusted by amazing brands", logos: ["Google", "Spotify", "Netflix", "Airbnb", "Stripe"] } },
       { id: nanoid(8), type: "heading", props: { text: "Featured Projects", align: "center" } },
       { id: nanoid(8), type: "gallery", props: { count: 6 } },
-      { id: nanoid(8), type: "features", props: { features: [
-        { title: "UI/UX Design", desc: "Beautiful, intuitive interfaces that delight users" },
-        { title: "Web Development", desc: "Fast, responsive websites built with modern tech" },
-        { title: "Brand Identity", desc: "Logos, colors, and guidelines that define your brand" },
-      ] } },
+      {
+        id: nanoid(8), type: "features", props: {
+          features: [
+            { title: "UI/UX Design", desc: "Beautiful, intuitive interfaces that delight users" },
+            { title: "Web Development", desc: "Fast, responsive websites built with modern tech" },
+            { title: "Brand Identity", desc: "Logos, colors, and guidelines that define your brand" },
+          ]
+        }
+      },
       { id: nanoid(8), type: "stats", props: { stats: [{ value: "100+", label: "Projects Completed" }, { value: "50+", label: "Happy Clients" }, { value: "8+", label: "Years Experience" }, { value: "15", label: "Awards Won" }] } },
-      { id: nanoid(8), type: "testimonials", props: { testimonials: [
-        { name: "Mark Z.", role: "Startup Founder", quote: "Exceeded our expectations. The redesign increased conversions by 40%." },
-        { name: "Anna P.", role: "Marketing Director", quote: "An incredible eye for detail and a joy to work with." },
-        { name: "Tom H.", role: "Product Manager", quote: "Delivered on time, on budget, and above quality standards." },
-      ] } },
+      {
+        id: nanoid(8), type: "testimonials", props: {
+          testimonials: [
+            { name: "Mark Z.", role: "Startup Founder", quote: "Exceeded our expectations. The redesign increased conversions by 40%." },
+            { name: "Anna P.", role: "Marketing Director", quote: "An incredible eye for detail and a joy to work with." },
+            { name: "Tom H.", role: "Product Manager", quote: "Delivered on time, on budget, and above quality standards." },
+          ]
+        }
+      },
       { id: nanoid(8), type: "cta", props: { title: "Let's Work Together", subtitle: "Have a project in mind? I'd love to hear about it.", primaryButton: "Get in Touch", secondaryButton: "View Resume" } },
       { id: nanoid(8), type: "social-links", props: { links: [{ platform: "Dribbble", url: "#" }, { platform: "Behance", url: "#" }, { platform: "GitHub", url: "#" }, { platform: "LinkedIn", url: "#" }, { platform: "Twitter", url: "#" }] } }
     );
@@ -535,27 +991,43 @@ function generateMockBlocks(prompt: string): any[] {
       { id: nanoid(8), type: "navbar", props: { brand: "CloudApp", links: [{ label: "Features", url: "#features" }, { label: "Pricing", url: "#pricing" }, { label: "Docs", url: "#docs" }, { label: "Blog", url: "#blog" }], ctaText: "Start Free Trial" } },
       { id: nanoid(8), type: "hero", props: { title: "The Smarter Way to Build Products", subtitle: "Streamline your workflow, collaborate in real-time, and ship faster with our all-in-one platform.", buttonText: "Start Free Trial" } },
       { id: nanoid(8), type: "logo-cloud", props: { title: "Powering teams at leading companies", logos: ["Slack", "Notion", "Figma", "Linear", "Vercel", "Stripe"] } },
-      { id: nanoid(8), type: "features", props: { features: [
-        { title: "Real-time Collaboration", desc: "Work together seamlessly with your team, no matter where they are" },
-        { title: "Powerful Analytics", desc: "Get deep insights into your product performance and user behavior" },
-        { title: "Enterprise Security", desc: "SOC 2 compliant with end-to-end encryption and SSO" },
-      ] } },
+      {
+        id: nanoid(8), type: "features", props: {
+          features: [
+            { title: "Real-time Collaboration", desc: "Work together seamlessly with your team, no matter where they are" },
+            { title: "Powerful Analytics", desc: "Get deep insights into your product performance and user behavior" },
+            { title: "Enterprise Security", desc: "SOC 2 compliant with end-to-end encryption and SSO" },
+          ]
+        }
+      },
       { id: nanoid(8), type: "stats", props: { stats: [{ value: "10K+", label: "Companies" }, { value: "99.9%", label: "Uptime" }, { value: "50M+", label: "API Calls/Day" }, { value: "150+", label: "Countries" }] } },
-      { id: nanoid(8), type: "pricing-table", props: { plans: [
-        { name: "Starter", price: "$0/mo", features: ["Up to 5 users", "Basic analytics", "Community support", "1 project"], highlighted: false },
-        { name: "Pro", price: "$29/mo", features: ["Unlimited users", "Advanced analytics", "Priority support", "Unlimited projects", "API access"], highlighted: true },
-        { name: "Enterprise", price: "Custom", features: ["Everything in Pro", "Dedicated success manager", "Custom SLA", "SSO & SAML", "On-premise option"], highlighted: false },
-      ] } },
-      { id: nanoid(8), type: "testimonials", props: { testimonials: [
-        { name: "Katie M.", role: "VP Engineering, TechCo", quote: "CloudApp cut our development cycle by 60%. It's now essential to our workflow." },
-        { name: "Ryan J.", role: "CTO, StartupX", quote: "The best developer tool we've adopted this year. Our team loves it." },
-        { name: "Laura S.", role: "Product Lead, ScaleUp", quote: "Finally, a platform that actually delivers on its promises." },
-      ] } },
-      { id: nanoid(8), type: "faq", props: { title: "Frequently Asked Questions", items: [
-        { question: "Can I try it for free?", answer: "Yes! Our Starter plan is completely free, no credit card required." },
-        { question: "How does billing work?", answer: "We bill monthly or annually (save 20%). Cancel anytime." },
-        { question: "Is my data secure?", answer: "Absolutely. We're SOC 2 Type II compliant with 256-bit encryption." },
-      ] } },
+      {
+        id: nanoid(8), type: "pricing-table", props: {
+          plans: [
+            { name: "Starter", price: "$0/mo", features: ["Up to 5 users", "Basic analytics", "Community support", "1 project"], highlighted: false },
+            { name: "Pro", price: "$29/mo", features: ["Unlimited users", "Advanced analytics", "Priority support", "Unlimited projects", "API access"], highlighted: true },
+            { name: "Enterprise", price: "Custom", features: ["Everything in Pro", "Dedicated success manager", "Custom SLA", "SSO & SAML", "On-premise option"], highlighted: false },
+          ]
+        }
+      },
+      {
+        id: nanoid(8), type: "testimonials", props: {
+          testimonials: [
+            { name: "Katie M.", role: "VP Engineering, TechCo", quote: "CloudApp cut our development cycle by 60%. It's now essential to our workflow." },
+            { name: "Ryan J.", role: "CTO, StartupX", quote: "The best developer tool we've adopted this year. Our team loves it." },
+            { name: "Laura S.", role: "Product Lead, ScaleUp", quote: "Finally, a platform that actually delivers on its promises." },
+          ]
+        }
+      },
+      {
+        id: nanoid(8), type: "faq", props: {
+          title: "Frequently Asked Questions", items: [
+            { question: "Can I try it for free?", answer: "Yes! Our Starter plan is completely free, no credit card required." },
+            { question: "How does billing work?", answer: "We bill monthly or annually (save 20%). Cancel anytime." },
+            { question: "Is my data secure?", answer: "Absolutely. We're SOC 2 Type II compliant with 256-bit encryption." },
+          ]
+        }
+      },
       { id: nanoid(8), type: "cta", props: { title: "Ready to Transform Your Workflow?", subtitle: "Join 10,000+ teams already using CloudApp", primaryButton: "Start Free Trial", secondaryButton: "Talk to Sales" } },
       { id: nanoid(8), type: "footer", props: { columns: [{ title: "Product", links: ["Features", "Pricing", "Changelog", "Roadmap"] }, { title: "Resources", links: ["Documentation", "API Reference", "Community", "Blog"] }, { title: "Company", links: ["About", "Careers", "Press", "Contact"] }], copyright: "2025 CloudApp Inc. All rights reserved." } }
     );
@@ -564,11 +1036,15 @@ function generateMockBlocks(prompt: string): any[] {
       { id: nanoid(8), type: "navbar", props: { brand: "LaunchPad", links: [{ label: "Features", url: "#" }, { label: "About", url: "#" }], ctaText: "Join Waitlist" } },
       { id: nanoid(8), type: "hero", props: { title: "Something Amazing is Coming", subtitle: "Be the first to experience our revolutionary new product. Join the waitlist today.", buttonText: "Get Early Access" } },
       { id: nanoid(8), type: "countdown", props: { title: "Launching Soon", subtitle: "Mark your calendars - something big is coming", targetDate: "" } },
-      { id: nanoid(8), type: "features", props: { features: [
-        { title: "Game Changing", desc: "A completely new approach to solving old problems" },
-        { title: "Easy to Use", desc: "Intuitive design that anyone can master in minutes" },
-        { title: "Built for Scale", desc: "Enterprise-ready infrastructure from day one" },
-      ] } },
+      {
+        id: nanoid(8), type: "features", props: {
+          features: [
+            { title: "Game Changing", desc: "A completely new approach to solving old problems" },
+            { title: "Easy to Use", desc: "Intuitive design that anyone can master in minutes" },
+            { title: "Built for Scale", desc: "Enterprise-ready infrastructure from day one" },
+          ]
+        }
+      },
       { id: nanoid(8), type: "newsletter", props: { title: "Join the Waitlist", subtitle: "Get notified when we launch and receive exclusive early access", buttonText: "Notify Me" } },
       { id: nanoid(8), type: "social-links", props: { links: [{ platform: "Twitter", url: "#" }, { platform: "Instagram", url: "#" }, { platform: "LinkedIn", url: "#" }] } }
     );
@@ -576,24 +1052,36 @@ function generateMockBlocks(prompt: string): any[] {
     blocks.push(
       { id: nanoid(8), type: "navbar", props: { brand: "Catalyst Agency", links: [{ label: "Services", url: "#" }, { label: "Work", url: "#" }, { label: "Team", url: "#" }, { label: "Blog", url: "#" }], ctaText: "Get a Quote" } },
       { id: nanoid(8), type: "hero", props: { title: "We Build Brands That Matter", subtitle: "Full-service digital agency specializing in strategy, design, and growth marketing.", buttonText: "View Our Work" } },
-      { id: nanoid(8), type: "features", props: { features: [
-        { title: "Brand Strategy", desc: "Data-driven brand positioning that resonates with your audience" },
-        { title: "Digital Marketing", desc: "SEO, PPC, and content marketing that drives real results" },
-        { title: "Web Development", desc: "Custom websites and apps built for performance" },
-      ] } },
+      {
+        id: nanoid(8), type: "features", props: {
+          features: [
+            { title: "Brand Strategy", desc: "Data-driven brand positioning that resonates with your audience" },
+            { title: "Digital Marketing", desc: "SEO, PPC, and content marketing that drives real results" },
+            { title: "Web Development", desc: "Custom websites and apps built for performance" },
+          ]
+        }
+      },
       { id: nanoid(8), type: "stats", props: { stats: [{ value: "200+", label: "Projects Delivered" }, { value: "98%", label: "Client Retention" }, { value: "5x", label: "Average ROI" }, { value: "12", label: "Team Members" }] } },
-      { id: nanoid(8), type: "team", props: { members: [
-        { name: "Alex Rivera", role: "Creative Director", bio: "15 years of brand strategy" },
-        { name: "Jordan Lee", role: "Lead Developer", bio: "Full-stack engineering expert" },
-        { name: "Maya Chen", role: "Marketing Head", bio: "Growth & performance specialist" },
-        { name: "Chris Park", role: "UX Designer", bio: "Human-centered design advocate" },
-      ] } },
+      {
+        id: nanoid(8), type: "team", props: {
+          members: [
+            { name: "Alex Rivera", role: "Creative Director", bio: "15 years of brand strategy" },
+            { name: "Jordan Lee", role: "Lead Developer", bio: "Full-stack engineering expert" },
+            { name: "Maya Chen", role: "Marketing Head", bio: "Growth & performance specialist" },
+            { name: "Chris Park", role: "UX Designer", bio: "Human-centered design advocate" },
+          ]
+        }
+      },
       { id: nanoid(8), type: "logo-cloud", props: { title: "Brands we've worked with", logos: ["Nike", "Apple", "Google", "Amazon", "Microsoft"] } },
-      { id: nanoid(8), type: "testimonials", props: { testimonials: [
-        { name: "James R.", role: "CEO, TechStart", quote: "Catalyst transformed our brand. Revenue increased 300% in 6 months." },
-        { name: "Maria S.", role: "CMO, FinCorp", quote: "The most strategic and results-driven agency we've ever worked with." },
-        { name: "David K.", role: "Founder, GreenCo", quote: "They don't just deliver projects, they deliver growth." },
-      ] } },
+      {
+        id: nanoid(8), type: "testimonials", props: {
+          testimonials: [
+            { name: "James R.", role: "CEO, TechStart", quote: "Catalyst transformed our brand. Revenue increased 300% in 6 months." },
+            { name: "Maria S.", role: "CMO, FinCorp", quote: "The most strategic and results-driven agency we've ever worked with." },
+            { name: "David K.", role: "Founder, GreenCo", quote: "They don't just deliver projects, they deliver growth." },
+          ]
+        }
+      },
       { id: nanoid(8), type: "contact-form", props: { title: "Start Your Project", subtitle: "Tell us about your goals and we'll craft a custom strategy", buttonText: "Submit Inquiry" } },
       { id: nanoid(8), type: "footer", props: { columns: [{ title: "Services", links: ["Branding", "Web Design", "SEO", "Content"] }, { title: "Company", links: ["About", "Team", "Careers", "Blog"] }, { title: "Contact", links: ["hello@catalyst.com", "(555) 987-6543", "NYC, New York"] }], copyright: "2025 Catalyst Agency. All rights reserved." } }
     );
@@ -607,7 +1095,7 @@ function generateMockBlocks(prompt: string): any[] {
       { id: nanoid(8), type: "stats", props: { stats: isRealEstate ? [{ value: "5000+", label: "Listings" }, { value: "2000+", label: "Homes Sold" }, { value: "500+", label: "Agents" }, { value: "4.8", label: "Rating" }] : isFitness ? [{ value: "500+", label: "Members" }, { value: "50+", label: "Classes/Week" }, { value: "20+", label: "Trainers" }, { value: "4.9", label: "Rating" }] : [{ value: "1000+", label: "Courses" }, { value: "50K+", label: "Students" }, { value: "200+", label: "Instructors" }, { value: "95%", label: "Completion Rate" }] } },
       { id: nanoid(8), type: "testimonials", props: { testimonials: [{ name: "Alex T.", role: "Happy Client", quote: `Best ${niche} experience I've ever had. Highly recommend!` }, { name: "Pat M.", role: "Client", quote: `Professional, reliable, and truly exceptional ${niche} service.` }, { name: "Sam R.", role: "Long-time Member", quote: `Changed my life. I can't imagine going anywhere else for ${niche}.` }] } },
       { id: nanoid(8), type: isRealEstate ? "pricing-table" : "pricing-table", props: { plans: [{ name: "Basic", price: isRealEstate ? "$0/mo" : isFitness ? "$29/mo" : "$9/mo", features: ["Basic Access", "Limited Features", "Email Support"], highlighted: false }, { name: "Premium", price: isRealEstate ? "$49/mo" : isFitness ? "$59/mo" : "$29/mo", features: ["Full Access", "All Features", "Priority Support", "Exclusive Content"], highlighted: true }, { name: "VIP", price: isRealEstate ? "$149/mo" : isFitness ? "$99/mo" : "$79/mo", features: ["Everything in Premium", "Personal Consultant", "Custom Solutions", "API Access"], highlighted: false }] } },
-      { id: nanoid(8), type: "contact-form", props: { title: "Contact Us", subtitle: `Have questions about our ${niche} services? Reach out!`, buttonText: "Send Message" } },
+      { id: nanoid(8), type: "contact-form", props: { title: "Contact Us", subtitle: `Have questions about our ${niche} services ? Reach out!`, buttonText: "Send Message" } },
       { id: nanoid(8), type: "footer", props: { columns: [{ title: "Services", links: ["Browse All", "Premium", "Enterprise"] }, { title: "Support", links: ["Help Center", "FAQ", "Contact"] }, { title: "Legal", links: ["Privacy", "Terms", "Cookies"] }], copyright: `2025 ${brand}. All rights reserved.` } }
     );
   } else {
@@ -688,11 +1176,26 @@ function generateMockBlocks(prompt: string): any[] {
   return blocks;
 }
 
-function generateStaticSite(name: string, schema: any[]): { html: string; css: string } {
+function generatePageHtml(blocks: any[]): string {
   let bodyHtml = "";
-
-  for (const block of schema) {
+  for (const block of blocks) {
     const props = block.props || {};
+    const styleAttr = block.style ? ` style="${Object.entries(block.style)
+      .filter(([k, v]) => v && !k.startsWith('animation') && k !== 'customCss')
+      .map(([k, v]) => `${k.replace(/([A-Z])/g, '-$1').toLowerCase()}:${v}`).join(';')}${block.style.customCss ? ';' + block.style.customCss : ''}"` : "";
+
+    // Animation attributes
+    const animType = block.style?.animation && block.style.animation !== "none" ? block.style.animation : "";
+    const animDuration = block.style?.animationDuration || "0.6s";
+    const animDelay = block.style?.animationDelay || "0s";
+
+    // Opening wrapper for animation if needed
+    if (animType) {
+      bodyHtml += `<div data-animate="${animType}" style="animation-duration: ${animDuration}; animation-delay: ${animDelay}; opacity: 0;">\n`;
+    }
+
+    // Wrap the inner switch content in a div to hold the standard styleAttr
+    bodyHtml += `<div${styleAttr}>\n`;
     switch (block.type) {
       case "navbar":
         const navLinks = (props.links || []).map((l: any) => `<a href="${escHtml(l.url || "#")}">${escHtml(l.label)}</a>`).join("");
@@ -804,47 +1307,89 @@ function generateStaticSite(name: string, schema: any[]): { html: string; css: s
       case "cta":
         bodyHtml += `<div class="cta-section"><h3>${escHtml(props.title || "")}</h3><p>${escHtml(props.subtitle || "")}</p><div class="cta-buttons"><a href="#" class="btn">${escHtml(props.primaryButton || "Get Started")}</a>${props.secondaryButton ? `<a href="#" class="btn btn-outline">${escHtml(props.secondaryButton)}</a>` : ""}</div></div>\n`;
         break;
+      case "blog-post":
+        bodyHtml += `<article class="blog-post-card"><div class="blog-img"><img src="${escHtml(props.image || "https://placehold.co/600x300")}" alt="${escHtml(props.title || "")}" /></div><div class="blog-body"><span class="blog-cat">${escHtml(props.category || "General")}</span><h3>${escHtml(props.title || "Blog Post")}</h3><p>${escHtml(props.excerpt || "")}</p><div class="blog-meta"><span>${escHtml(props.author || "Author")}</span><span>${escHtml(props.date || "")}</span></div></div></article>\n`;
+        break;
+      case "blog-list": {
+        const posts = (props.posts || []).map((p: any) => `<div class="blog-post-card"><div class="blog-img"><img src="https://placehold.co/400x200" alt="${escHtml(p.title || "")}" /></div><div class="blog-body"><span class="blog-cat">${escHtml(p.category || "")}</span><h4>${escHtml(p.title || "")}</h4><p>${escHtml(p.excerpt || "")}</p><div class="blog-meta"><span>${escHtml(p.author || "")}</span><span>${escHtml(p.date || "")}</span></div></div></div>`).join("");
+        bodyHtml += `<div class="blog-section">${props.title ? `<h3 class="section-title">${escHtml(props.title)}</h3>` : ""}<div class="blog-grid">${posts}</div></div>\n`;
+        break;
+      }
+      case "cart": {
+        const items = (props.items || []).map((it: any) => `<div class="cart-item"><span>${escHtml(it.name || "")}</span><span>x${it.quantity || 1}</span><span>${escHtml(it.price || "")}</span></div>`).join("");
+        bodyHtml += `<div class="cart-section"><h3>Shopping Cart</h3>${items}<div class="cart-total"><strong>Total</strong></div>${props.showCheckout !== false ? `<a href="#" class="btn">Proceed to Checkout</a>` : ""}</div>\n`;
+        break;
+      }
+      case "checkout-form":
+        bodyHtml += `<div class="contact-form-wrap"><h3>${escHtml(props.title || "Checkout")}</h3><p class="subtitle">${escHtml(props.subtitle || "")}</p><form class="contact-form"><input type="text" placeholder="Full Name" /><input type="email" placeholder="Email" /><input type="text" placeholder="Address" /><input type="text" placeholder="Card Number" /><button type="submit" class="btn">${escHtml(props.buttonText || "Place Order")}</button></form></div>\n`;
+        break;
+      case "map":
+        bodyHtml += `<div class="map-section" style="height:${props.height || "300px"};background:#e5e7eb;display:flex;align-items:center;justify-content:center;border-radius:8px;margin:20px 40px"><p>📍 ${escHtml(props.address || "Location")}</p></div>\n`;
+        break;
+      case "booking-form":
+        bodyHtml += `<div class="contact-form-wrap"><h3>${escHtml(props.title || "Book Now")}</h3><p class="subtitle">${escHtml(props.subtitle || "")}</p><form class="contact-form"><input type="text" placeholder="Your Name" /><input type="email" placeholder="Email" /><input type="date" placeholder="Date" /><select>${(props.services || ["Service"]).map((s: string) => `<option>${escHtml(s)}</option>`).join("")}</select><button type="submit" class="btn">${escHtml(props.buttonText || "Book")}</button></form></div>\n`;
+        break;
+      case "login-form":
+        bodyHtml += `<div class="contact-form-wrap"><h3>${escHtml(props.title || "Sign In")}</h3><p class="subtitle">${escHtml(props.subtitle || "")}</p><form class="contact-form"><input type="email" placeholder="Email" /><input type="password" placeholder="Password" /><button type="submit" class="btn">${escHtml(props.buttonText || "Sign In")}</button></form>${props.showSignup !== false ? `<p style="text-align:center;margin-top:12px;font-size:0.85rem;color:#666">Don't have an account? <a href="#" style="color:#3b82f6">Sign Up</a></p>` : ""}</div>\n`;
+        break;
+    }
+
+    bodyHtml += `</div>\n`; // Close style wrapper
+    if (animType) {
+      bodyHtml += `</div>\n`; // Close animation wrapper
     }
   }
+  return bodyHtml;
+}
 
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${escHtml(name)}</title>
-  <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-${bodyHtml}
-</body>
-</html>`;
-
-  const css = `* { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1a1a1a; line-height: 1.6; }
+function generateCSS(settings: any): string {
+  const primary = settings?.primaryColor || "#3b82f6";
+  const font = settings?.fontFamily || "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  return `* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: ${font}; color: #1a1a1a; line-height: 1.6; overflow-x: hidden; }
 a { color: inherit; text-decoration: none; }
 img { max-width: 100%; height: auto; }
 
-/* Navbar */
+/* --- Animations --- */
+[data-animate] { opacity: 0; animation-fill-mode: forwards; }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slide-up { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slide-down { from { opacity: 0; transform: translateY(-40px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slide-left { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes slide-right { from { opacity: 0; transform: translateX(-40px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes zoom-in { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: scale(1); } }
+@keyframes zoom-out { from { opacity: 0; transform: scale(1.2); } to { opacity: 1; transform: scale(1); } }
+@keyframes flip { from { opacity: 0; transform: perspective(400px) rotateX(90deg); } to { opacity: 1; transform: perspective(400px) rotateX(0deg); } }
+@keyframes bounce { 
+  0% { opacity: 0; transform: translateY(60px); } 
+  60% { opacity: 1; transform: translateY(-10px); } 
+  80% { transform: translateY(5px); } 
+  100% { opacity: 1; transform: translateY(0); } 
+}
+.animate-fade-in { animation-name: fade-in; }
+.animate-slide-up { animation-name: slide-up; }
+.animate-slide-down { animation-name: slide-down; }
+.animate-slide-left { animation-name: slide-left; }
+.animate-slide-right { animation-name: slide-right; }
+.animate-zoom-in { animation-name: zoom-in; }
+.animate-zoom-out { animation-name: zoom-out; }
+.animate-flip { animation-name: flip; }
+.animate-bounce { animation-name: bounce; }
+/* ----------------- */
+
 .navbar { display: flex; align-items: center; justify-content: space-between; padding: 16px 40px; border-bottom: 1px solid #e5e5e5; position: sticky; top: 0; background: white; z-index: 100; }
 .nav-brand { font-weight: 700; font-size: 1.25rem; }
 .nav-links { display: flex; align-items: center; gap: 24px; }
 .nav-links a { font-size: 0.9rem; color: #555; transition: color 0.2s; }
 .nav-links a:hover { color: #1a1a1a; }
-
-/* Hero */
-.hero { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 80px 40px; text-align: center; }
+.hero { background: linear-gradient(135deg, ${primary} 0%, #764ba2 100%); color: white; padding: 80px 40px; text-align: center; }
 .hero h1 { font-size: 2.5rem; margin-bottom: 16px; max-width: 700px; margin-left: auto; margin-right: auto; }
 .hero p { font-size: 1.1rem; opacity: 0.9; max-width: 600px; margin: 0 auto 24px; }
-
-/* Buttons */
-.btn { display: inline-block; background: #3b82f6; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 500; border: none; cursor: pointer; font-size: 0.95rem; transition: background 0.2s; }
-.btn:hover { background: #2563eb; }
+.btn { display: inline-block; background: ${primary}; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 500; border: none; cursor: pointer; font-size: 0.95rem; transition: background 0.2s; }
+.btn:hover { opacity: 0.9; }
 .btn-sm { padding: 8px 16px; font-size: 0.85rem; }
-.btn-outline { background: transparent; border: 2px solid #3b82f6; color: #3b82f6; }
-.btn-outline:hover { background: #3b82f6; color: white; }
-
-/* Content */
+.btn-outline { background: transparent; border: 2px solid ${primary}; color: ${primary}; }
+.btn-outline:hover { background: ${primary}; color: white; }
 .heading { font-size: 1.75rem; padding: 20px 40px; }
 .text-block { padding: 10px 40px; color: #4a4a4a; max-width: 800px; }
 .button-wrap { padding: 10px 40px; }
@@ -852,14 +1397,10 @@ img { max-width: 100%; height: auto; }
 .image-block img { border-radius: 8px; }
 .divider { border: none; border-top: 1px solid #e5e5e5; margin: 20px 40px; }
 .content-section { padding: 40px; background: #f8f8f8; }
-
-/* Features */
 .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 24px; padding: 40px; }
 .feature-card { background: white; border: 1px solid #e5e5e5; border-radius: 8px; padding: 24px; }
-.feature-card h4 { margin-bottom: 8px; color: #1a1a1a; }
+.feature-card h4 { margin-bottom: 8px; }
 .feature-card p { color: #666; font-size: 0.9rem; }
-
-/* Products */
 .products-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; padding: 40px; }
 .product-card { border: 1px solid #e5e5e5; border-radius: 8px; overflow: hidden; background: white; }
 .product-img img { width: 100%; height: 200px; object-fit: cover; }
@@ -867,74 +1408,51 @@ img { max-width: 100%; height: auto; }
 .product-info h4 { margin-bottom: 4px; }
 .product-info p { color: #666; font-size: 0.85rem; margin-bottom: 12px; }
 .product-footer { display: flex; align-items: center; justify-content: space-between; }
-.price { font-weight: 700; color: #3b82f6; font-size: 1.1rem; }
-
-/* Pricing */
+.price { font-weight: 700; color: ${primary}; font-size: 1.1rem; }
 .pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 24px; padding: 40px; }
 .pricing-card { border: 1px solid #e5e5e5; border-radius: 8px; padding: 32px; text-align: center; background: white; }
-.pricing-card.highlighted { border-color: #3b82f6; box-shadow: 0 0 0 2px #3b82f6; }
+.pricing-card.highlighted { border-color: ${primary}; box-shadow: 0 0 0 2px ${primary}; }
 .plan-name { text-transform: uppercase; letter-spacing: 1px; font-size: 0.85rem; color: #888; margin-bottom: 8px; }
 .plan-price { font-size: 2rem; font-weight: 700; margin-bottom: 16px; }
 .plan-features { list-style: none; text-align: left; margin-bottom: 24px; }
 .plan-features li { padding: 6px 0; font-size: 0.9rem; color: #555; border-bottom: 1px solid #f3f4f6; }
-.plan-features li::before { content: "\\2713 "; color: #3b82f6; font-weight: 700; margin-right: 8px; }
-
-/* Contact Form */
+.plan-features li::before { content: "\\2713 "; color: ${primary}; font-weight: 700; margin-right: 8px; }
 .contact-form-wrap { max-width: 500px; margin: 0 auto; padding: 40px; }
 .contact-form-wrap h3 { font-size: 1.5rem; margin-bottom: 4px; }
 .contact-form-wrap .subtitle { color: #666; margin-bottom: 24px; font-size: 0.9rem; }
 .contact-form { display: flex; flex-direction: column; gap: 12px; }
-.contact-form input, .contact-form textarea { padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9rem; font-family: inherit; }
-.contact-form input:focus, .contact-form textarea:focus { outline: none; border-color: #3b82f6; }
-
-/* Testimonials */
+.contact-form input, .contact-form textarea, .contact-form select { padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9rem; font-family: inherit; }
+.contact-form input:focus, .contact-form textarea:focus { outline: none; border-color: ${primary}; }
 .testimonials-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; padding: 40px; }
 .testimonial-card { border: 1px solid #e5e5e5; border-radius: 8px; padding: 24px; background: white; }
 .testimonial-card blockquote { font-style: italic; color: #555; margin-bottom: 16px; font-size: 0.95rem; }
 .testimonial-author strong { display: block; }
 .testimonial-author span { font-size: 0.85rem; color: #888; }
-
-/* Gallery */
 .gallery-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; padding: 20px 40px; }
 .gallery-item img { width: 100%; height: 200px; object-fit: cover; border-radius: 6px; }
-
-/* Video */
 .video-embed { padding: 20px 40px; }
 .video-embed iframe { border-radius: 8px; }
-
-/* FAQ */
 .faq-section { max-width: 700px; margin: 0 auto; padding: 40px; }
 .faq-section h3 { text-align: center; margin-bottom: 24px; font-size: 1.5rem; }
 .faq-item { border: 1px solid #e5e5e5; border-radius: 6px; margin-bottom: 8px; }
 .faq-item summary { padding: 14px 16px; font-weight: 500; cursor: pointer; font-size: 0.95rem; }
 .faq-item p { padding: 0 16px 14px; color: #666; font-size: 0.9rem; }
-
-/* Stats */
 .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 24px; padding: 40px; text-align: center; }
-.stat-value { font-size: 2rem; font-weight: 700; color: #3b82f6; }
+.stat-value { font-size: 2rem; font-weight: 700; color: ${primary}; }
 .stat-label { font-size: 0.85rem; color: #888; margin-top: 4px; }
-
-/* Team */
 .team-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 24px; padding: 40px; text-align: center; }
-.team-avatar { width: 60px; height: 60px; border-radius: 50%; background: #e0e7ff; color: #3b82f6; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px; font-size: 1.25rem; font-weight: 700; }
+.team-avatar { width: 60px; height: 60px; border-radius: 50%; background: #e0e7ff; color: ${primary}; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px; font-size: 1.25rem; font-weight: 700; }
 .team-card h4 { margin-bottom: 2px; }
-.team-role { color: #3b82f6; font-size: 0.85rem; }
+.team-role { color: ${primary}; font-size: 0.85rem; }
 .team-card p { color: #666; font-size: 0.85rem; margin-top: 8px; }
-
-/* Social Links */
 .social-links { display: flex; justify-content: center; gap: 12px; padding: 20px 40px; }
-.social-link { width: 40px; height: 40px; border-radius: 50%; background: #f3f4f6; display: flex; align-items: center; justify-content: center; font-size: 0; color: #555; transition: background 0.2s; }
-.social-link::after { content: attr(href); font-size: 0; }
-.social-link:hover { background: #3b82f6; color: white; }
-
-/* Banner */
+.social-link { padding: 8px 16px; border-radius: 6px; background: #f3f4f6; color: #555; font-size: 0.85rem; transition: background 0.2s; }
+.social-link:hover { background: ${primary}; color: white; }
 .banner { padding: 12px 40px; text-align: center; font-size: 0.9rem; }
 .banner-info { background: #eff6ff; color: #1e40af; }
 .banner-warning { background: #fefce8; color: #854d0e; }
 .banner-error { background: #fef2f2; color: #991b1b; }
 .banner a { font-weight: 600; text-decoration: underline; margin-left: 8px; }
-
-/* Countdown */
 .countdown-section { text-align: center; padding: 40px; }
 .countdown-section h3 { font-size: 1.5rem; margin-bottom: 24px; }
 .countdown-timer { display: flex; justify-content: center; gap: 16px; margin-bottom: 16px; }
@@ -942,44 +1460,47 @@ img { max-width: 100%; height: auto; }
 .countdown-unit span { font-size: 1.5rem; font-weight: 700; display: block; }
 .countdown-unit small { font-size: 0.75rem; color: #888; }
 .countdown-section p { color: #666; font-size: 0.9rem; }
-
-/* Newsletter */
 .newsletter-section { text-align: center; padding: 40px; background: #f8f9ff; }
 .newsletter-section h3 { font-size: 1.5rem; margin-bottom: 8px; }
 .newsletter-section p { color: #666; margin-bottom: 20px; }
 .newsletter-form { display: flex; gap: 8px; max-width: 400px; margin: 0 auto; }
 .newsletter-form input { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9rem; }
-
-/* Logo Cloud */
 .logo-cloud { text-align: center; padding: 30px 40px; }
 .logo-title { font-size: 0.85rem; color: #888; margin-bottom: 16px; }
 .logo-grid { display: flex; justify-content: center; gap: 24px; flex-wrap: wrap; }
 .logo-item { background: #f3f4f6; padding: 10px 20px; border-radius: 6px; font-weight: 500; color: #888; font-size: 0.85rem; }
-
-/* CTA */
 .cta-section { text-align: center; padding: 60px 40px; background: linear-gradient(135deg, #f0f4ff 0%, #e8eeff 100%); }
 .cta-section h3 { font-size: 1.75rem; margin-bottom: 8px; }
 .cta-section p { color: #555; margin-bottom: 24px; }
 .cta-buttons { display: flex; justify-content: center; gap: 12px; }
-
-/* Footer */
+.blog-section { padding: 40px; }
+.section-title { font-size: 1.5rem; text-align: center; margin-bottom: 24px; }
+.blog-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; }
+.blog-post-card { border: 1px solid #e5e5e5; border-radius: 8px; overflow: hidden; background: white; }
+.blog-img img { width: 100%; height: 200px; object-fit: cover; }
+.blog-body { padding: 16px; }
+.blog-cat { font-size: 0.75rem; color: ${primary}; text-transform: uppercase; font-weight: 600; }
+.blog-body h3, .blog-body h4 { margin: 4px 0 8px; }
+.blog-body p { color: #666; font-size: 0.85rem; margin-bottom: 12px; }
+.blog-meta { display: flex; justify-content: space-between; font-size: 0.8rem; color: #888; }
+.cart-section { max-width: 500px; margin: 0 auto; padding: 40px; }
+.cart-section h3 { margin-bottom: 16px; }
+.cart-item { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #eee; }
+.cart-total { padding: 12px 0; text-align: right; }
+.map-section { margin: 20px 40px; }
 .site-footer { background: #1a1a1a; color: #ccc; padding: 40px; }
 .footer-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 32px; margin-bottom: 24px; }
 .footer-col h4 { color: white; margin-bottom: 12px; font-size: 0.9rem; }
 .footer-col a { display: block; color: #999; font-size: 0.85rem; padding: 3px 0; transition: color 0.2s; }
 .footer-col a:hover { color: white; }
 .footer-bottom { border-top: 1px solid #333; padding-top: 16px; text-align: center; font-size: 0.8rem; color: #888; }
-
-/* Responsive */
 @media (max-width: 768px) {
   .navbar { flex-direction: column; gap: 12px; }
   .hero { padding: 50px 20px; }
   .hero h1 { font-size: 1.75rem; }
-  .features-grid, .products-grid, .pricing-grid, .testimonials-grid, .team-grid, .stats-grid { grid-template-columns: 1fr; padding: 20px; }
+  .features-grid, .products-grid, .pricing-grid, .testimonials-grid, .team-grid, .stats-grid, .blog-grid { grid-template-columns: 1fr; padding: 20px; }
   .heading, .text-block, .button-wrap, .image-block { padding-left: 20px; padding-right: 20px; }
 }`;
-
-  return { html, css };
 }
 
 function escHtml(str: string): string {

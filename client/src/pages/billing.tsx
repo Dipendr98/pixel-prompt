@@ -48,7 +48,7 @@ export default function Billing() {
         key: data.key_id,
         amount: data.amount,
         currency: data.currency,
-        name: "BuilderPro",
+        name: "PixelPrompt",
         description: "Pro Plan Subscription",
         order_id: data.order_id,
         handler: async (response: any) => {
@@ -105,7 +105,7 @@ export default function Billing() {
             <div className="flex items-center justify-center w-8 h-8 rounded-md bg-primary">
               <Layers className="w-4 h-4 text-primary-foreground" />
             </div>
-            <span className="font-semibold tracking-tight">BuilderPro</span>
+            <span className="font-semibold tracking-tight">PixelPrompt</span>
           </Link>
         </div>
       </header>

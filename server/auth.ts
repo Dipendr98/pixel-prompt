@@ -7,7 +7,9 @@ import type { User } from "@shared/schema";
 import type { Express, Request } from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
+import createMemoryStore from "memorystore";
 import pg from "pg";
+import { sendWelcomeEmail, sendPasswordResetEmail } from "./mail";
 
 const scryptAsync = promisify(scrypt);
 
@@ -26,24 +28,31 @@ export async function comparePasswords(supplied: string, stored: string): Promis
 
 declare global {
   namespace Express {
-    interface User extends Omit<import("@shared/schema").User, "password"> {}
+    interface User extends Omit<import("@shared/schema").User, "password"> { }
   }
 }
 
 export function setupAuth(app: Express) {
-  const PgStore = connectPgSimple(session);
-  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+  let sessionStore: session.Store;
+  if (process.env.DATABASE_URL) {
+    const PgStore = connectPgSimple(session);
+    const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+    sessionStore = new PgStore({ pool, createTableIfMissing: true });
+  } else {
+    const MemoryStore = createMemoryStore(session);
+    sessionStore = new MemoryStore({ checkPeriod: 86400000 });
+  }
 
   app.use(
     session({
-      store: new PgStore({ pool, createTableIfMissing: true }),
+      store: sessionStore,
       secret: process.env.SESSION_SECRET || "builder-pro-secret-key",
       resave: false,
       saveUninitialized: false,
       cookie: {
         maxAge: 7 * 24 * 60 * 60 * 1000,
         httpOnly: true,
-        secure: false,
+        secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
       },
     }),
@@ -95,12 +104,58 @@ export function setupAuth(app: Express) {
       const user = await storage.createUser({ email, password: hashedPassword });
       const { password: _, ...userWithoutPassword } = user;
 
+      // Send Welcome Email
+      await sendWelcomeEmail(user.email);
+
       req.login(userWithoutPassword, (err) => {
         if (err) return res.status(500).json({ message: "Login failed after signup" });
         res.json(userWithoutPassword);
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message || "Signup failed" });
+    }
+  });
+
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email) return res.status(400).json({ message: "Email required" });
+
+      const user = await storage.getUserByEmail(email);
+      if (!user) {
+        // We still return ok to prevent email enumeration
+        return res.json({ ok: true });
+      }
+
+      const token = randomBytes(32).toString("hex");
+      const expires = new Date(Date.now() + 3600000); // 1 hour
+      await storage.updateUserResetToken(user.id, token, expires);
+
+      await sendPasswordResetEmail(user.email, token);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to process forgot password" });
+    }
+  });
+
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const { token, password } = req.body;
+      if (!token || !password) return res.status(400).json({ message: "Token and password required" });
+      if (password.length < 6) return res.status(400).json({ message: "Password must be at least 6 characters" });
+
+      const user = await storage.getUserByResetToken(token);
+      if (!user || !user.resetPasswordExpires || new Date() > new Date(user.resetPasswordExpires)) {
+        return res.status(400).json({ message: "Invalid or expired reset token" });
+      }
+
+      const hashedPassword = await hashPassword(password);
+      await storage.updateUserPassword(user.id, hashedPassword);
+      await storage.updateUserResetToken(user.id, null, null);
+
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to reset password" });
     }
   });
 

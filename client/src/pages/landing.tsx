@@ -13,10 +13,8 @@ export default function Landing() {
       <header className="border-b bg-card/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="max-w-6xl mx-auto flex items-center justify-between gap-4 px-6 py-3">
           <div className="flex items-center gap-2">
-            <div className="flex items-center justify-center w-8 h-8 rounded-md bg-primary">
-              <Layers className="w-4 h-4 text-primary-foreground" />
-            </div>
-            <span className="font-semibold tracking-tight" data-testid="text-brand">BuilderPro</span>
+            <img src="/logo.png" className="w-8 h-8 rounded-md" alt="PixelPrompt Logo" />
+            <span className="font-semibold tracking-tight" data-testid="text-brand">PixelPrompt</span>
           </div>
           <div className="flex items-center gap-2">
             {user ? (
@@ -87,8 +85,15 @@ export default function Landing() {
       </section>
 
       <footer className="border-t bg-card">
-        <div className="max-w-6xl mx-auto px-6 py-6 text-center text-sm text-muted-foreground">
-          BuilderPro &mdash; AI-Powered Website Builder
+        <div className="max-w-6xl mx-auto px-6 py-8 flex flex-col md:flex-row justify-between items-center gap-4">
+          <div className="text-sm text-muted-foreground">
+            PixelPrompt &mdash; AI-Powered Website Builder
+          </div>
+          <div className="flex gap-4 text-sm font-medium">
+            <Link href="/contact" className="hover:text-primary transition-colors">
+              Contact Us
+            </Link>
+          </div>
         </div>
       </footer>
     </div>

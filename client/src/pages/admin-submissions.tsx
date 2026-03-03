@@ -923,7 +923,7 @@ export default function AdminSubmissions() {
                   <div className="w-7 h-7 rounded-md bg-primary flex items-center justify-center">
                     <Layers className="w-3.5 h-3.5 text-primary-foreground" />
                   </div>
-                  <span className="font-semibold text-sm tracking-tight">BuilderPro</span>
+                  <span className="font-semibold text-sm tracking-tight">PixelPrompt</span>
                 </Link>
                 <Badge variant="outline" className="mt-2 text-[10px]">Admin Panel</Badge>
               </div>

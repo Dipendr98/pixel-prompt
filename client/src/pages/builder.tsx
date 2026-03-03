@@ -3,7 +3,8 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useParams, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Project, ComponentBlock } from "@shared/schema";
+import type { Project, ComponentBlock, PageData, ProjectData, ProjectSettings } from "@shared/schema";
+import { migrateProjectSchema } from "@shared/schema";
 import {
   DndContext,
   closestCenter,
@@ -30,6 +31,9 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -38,7 +42,12 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Layers,
   ArrowLeft,
@@ -51,7 +60,39 @@ import {
   Sparkles,
   Loader2,
   Plus,
+  Monitor,
+  Tablet,
+  Smartphone,
+  FileText,
+  MoreVertical,
+  Trash2,
+  Pencil,
+  Palette,
+  Search,
+  X,
 } from "lucide-react";
+
+// --- Viewport Presets ---
+const VIEWPORTS = [
+  { id: "desktop", label: "Desktop", icon: Monitor, width: "100%" },
+  { id: "tablet", label: "Tablet", icon: Tablet, width: "768px" },
+  { id: "mobile", label: "Mobile", icon: Smartphone, width: "375px" },
+] as const;
+
+// --- Default Google Fonts ---
+const FONT_OPTIONS = [
+  { value: "Inter", label: "Inter" },
+  { value: "Roboto", label: "Roboto" },
+  { value: "Open Sans", label: "Open Sans" },
+  { value: "Poppins", label: "Poppins" },
+  { value: "Montserrat", label: "Montserrat" },
+  { value: "Lato", label: "Lato" },
+  { value: "Outfit", label: "Outfit" },
+  { value: "Playfair Display", label: "Playfair Display" },
+  { value: "Merriweather", label: "Merriweather" },
+  { value: "Source Sans Pro", label: "Source Sans Pro" },
+  { value: "system-ui", label: "System Default" },
+];
 
 function CanvasDropZone({
   blocks,
@@ -59,14 +100,26 @@ function CanvasDropZone({
   onSelectBlock,
   onDeleteBlock,
   onAddBlock,
+  viewport,
+  settings,
 }: {
   blocks: ComponentBlock[];
   selectedBlockId: string | null;
   onSelectBlock: (id: string | null) => void;
   onDeleteBlock: (id: string) => void;
   onAddBlock: (type: string) => void;
+  viewport: string;
+  settings: ProjectSettings;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: "canvas-drop-zone" });
+  const viewportObj = VIEWPORTS.find((v) => v.id === viewport) || VIEWPORTS[0];
+
+  const canvasStyle: React.CSSProperties = {
+    maxWidth: viewportObj.width,
+    margin: "0 auto",
+    transition: "max-width 0.3s ease",
+    fontFamily: settings.fontFamily || "inherit",
+  };
 
   return (
     <div
@@ -74,18 +127,17 @@ function CanvasDropZone({
       className="flex-1 overflow-auto bg-muted/30"
       onClick={() => onSelectBlock(null)}
     >
-      <div className="max-w-3xl mx-auto p-6 min-h-full">
+      <div style={canvasStyle} className="p-6 min-h-full">
         {blocks.length === 0 ? (
           <div
-            className={`flex flex-col items-center justify-center py-24 text-center border-2 border-dashed rounded-md transition-colors ${
-              isOver ? "border-primary bg-primary/5" : "border-border"
-            }`}
+            className={`flex flex-col items-center justify-center py-24 text-center border-2 border-dashed rounded-md transition-colors ${isOver ? "border-primary bg-primary/5" : "border-border"
+              }`}
           >
             <div className="w-16 h-16 rounded-md bg-muted flex items-center justify-center mb-4">
               <Layers className="w-8 h-8 text-muted-foreground" />
             </div>
             <h3 className="font-medium mb-1" data-testid="text-empty-canvas">
-              {isOver ? "Drop here to add" : "Start building"}
+              {isOver ? "Drop here to add" : "Start building this page"}
             </h3>
             <p className="text-sm text-muted-foreground max-w-xs mb-4">
               Drag components from the left panel or use AI to generate sections
@@ -107,9 +159,9 @@ function CanvasDropZone({
                 <Plus className="w-3.5 h-3.5 mr-1" />
                 Contact
               </Button>
-              <Button variant="outline" size="sm" onClick={() => onAddBlock("pricing-table")} data-testid="button-add-pricing">
+              <Button variant="outline" size="sm" onClick={() => onAddBlock("blog-list")} data-testid="button-add-blog">
                 <Plus className="w-3.5 h-3.5 mr-1" />
-                Pricing
+                Blog
               </Button>
               <Button variant="outline" size="sm" onClick={() => onAddBlock("footer")} data-testid="button-add-footer">
                 <Plus className="w-3.5 h-3.5 mr-1" />
@@ -131,9 +183,8 @@ function CanvasDropZone({
               ))}
             </div>
             <div
-              className={`mt-4 border-2 border-dashed rounded-md p-4 text-center transition-colors ${
-                isOver ? "border-primary bg-primary/5" : "border-transparent hover:border-border"
-              }`}
+              className={`mt-4 border-2 border-dashed rounded-md p-4 text-center transition-colors ${isOver ? "border-primary bg-primary/5" : "border-transparent hover:border-border"
+                }`}
             >
               <p className="text-xs text-muted-foreground">
                 {isOver ? "Drop here to add at bottom" : "Drag more components here"}
@@ -150,7 +201,7 @@ function createDefaultBlock(type: string): ComponentBlock {
   const id = nanoid(8);
   const defaults: Record<string, any> = {
     hero: { title: "Welcome to Your Website", subtitle: "Build something amazing with our drag-and-drop builder", buttonText: "Get Started" },
-    navbar: { brand: "MyBrand", links: [{ label: "Home", url: "#" }, { label: "Products", url: "#" }, { label: "About", url: "#" }, { label: "Contact", url: "#" }], ctaText: "Sign Up" },
+    navbar: { brand: "MyBrand", links: [{ label: "Home", url: "/" }, { label: "About", url: "/about" }, { label: "Contact", url: "/contact" }], ctaText: "Sign Up" },
     footer: { columns: [{ title: "Company", links: ["About", "Careers", "Blog"] }, { title: "Support", links: ["Help Center", "Contact", "FAQ"] }, { title: "Legal", links: ["Privacy", "Terms", "Cookies"] }], copyright: "2025 Your Company. All rights reserved." },
     section: { title: "New Section" },
     heading: { text: "Heading", align: "left" },
@@ -175,8 +226,179 @@ function createDefaultBlock(type: string): ComponentBlock {
     newsletter: { title: "Stay Updated", subtitle: "Subscribe to our newsletter for the latest updates", buttonText: "Subscribe" },
     "logo-cloud": { title: "Trusted by leading companies", logos: ["Company A", "Company B", "Company C", "Company D", "Company E"] },
     cta: { title: "Ready to Get Started?", subtitle: "Join thousands of satisfied customers today", primaryButton: "Get Started", secondaryButton: "Learn More" },
+    // New component defaults
+    "blog-post": { title: "Blog Post Title", excerpt: "This is a preview of the blog post content...", author: "Author Name", date: "2025-01-15", image: "", category: "General" },
+    "blog-list": { title: "Latest Posts", posts: [{ title: "Getting Started with Web Design", excerpt: "Learn the basics of modern web design...", author: "Sarah", date: "2025-01-15", category: "Design" }, { title: "Top 10 SEO Tips for 2025", excerpt: "Boost your search rankings with these proven strategies...", author: "Mike", date: "2025-01-10", category: "Marketing" }, { title: "How to Build an Online Store", excerpt: "Step-by-step guide to launching your e-commerce business...", author: "Lisa", date: "2025-01-05", category: "E-Commerce" }] },
+    cart: { items: [{ name: "Sample Product", price: "$29.99", quantity: 1, image: "" }], showCheckout: true },
+    "checkout-form": { title: "Checkout", subtitle: "Complete your purchase", buttonText: "Place Order", fields: ["name", "email", "address", "card"] },
+    map: { address: "New York, NY", zoom: 13, height: "300px" },
+    "booking-form": { title: "Book an Appointment", subtitle: "Choose your preferred date and time", buttonText: "Book Now", services: ["Consultation", "Session", "Meeting"] },
+    "login-form": { title: "Welcome Back", subtitle: "Sign in to your account", buttonText: "Sign In", showSignup: true },
   };
   return { id, type: type as ComponentBlock["type"], props: defaults[type] || {} };
+}
+
+// --- Style Settings Panel ---
+function StyleSettingsPanel({
+  settings,
+  onChange,
+}: {
+  settings: ProjectSettings;
+  onChange: (settings: ProjectSettings) => void;
+}) {
+  return (
+    <ScrollArea className="h-full">
+      <div className="p-4 space-y-5">
+        <div>
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+            <Palette className="w-4 h-4" /> Global Colors
+          </h3>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Primary Color</Label>
+              <div className="flex gap-2">
+                <input
+                  type="color"
+                  value={settings.primaryColor || "#3b82f6"}
+                  onChange={(e) => onChange({ ...settings, primaryColor: e.target.value })}
+                  className="w-8 h-8 rounded border cursor-pointer"
+                />
+                <Input
+                  value={settings.primaryColor || "#3b82f6"}
+                  onChange={(e) => onChange({ ...settings, primaryColor: e.target.value })}
+                  className="flex-1 text-xs"
+                  placeholder="#3b82f6"
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Secondary Color</Label>
+              <div className="flex gap-2">
+                <input
+                  type="color"
+                  value={settings.secondaryColor || "#10b981"}
+                  onChange={(e) => onChange({ ...settings, secondaryColor: e.target.value })}
+                  className="w-8 h-8 rounded border cursor-pointer"
+                />
+                <Input
+                  value={settings.secondaryColor || "#10b981"}
+                  onChange={(e) => onChange({ ...settings, secondaryColor: e.target.value })}
+                  className="flex-1 text-xs"
+                  placeholder="#10b981"
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Accent Color</Label>
+              <div className="flex gap-2">
+                <input
+                  type="color"
+                  value={settings.accentColor || "#f59e0b"}
+                  onChange={(e) => onChange({ ...settings, accentColor: e.target.value })}
+                  className="w-8 h-8 rounded border cursor-pointer"
+                />
+                <Input
+                  value={settings.accentColor || "#f59e0b"}
+                  onChange={(e) => onChange({ ...settings, accentColor: e.target.value })}
+                  className="flex-1 text-xs"
+                  placeholder="#f59e0b"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h3 className="text-sm font-semibold mb-3">Typography</h3>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Body Font</Label>
+              <select
+                value={settings.fontFamily || "Inter"}
+                onChange={(e) => onChange({ ...settings, fontFamily: e.target.value })}
+                className="w-full h-9 rounded-md border bg-background px-3 text-sm"
+              >
+                {FONT_OPTIONS.map((f) => (
+                  <option key={f.value} value={f.value}>{f.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Heading Font</Label>
+              <select
+                value={settings.headingFont || "Inter"}
+                onChange={(e) => onChange({ ...settings, headingFont: e.target.value })}
+                className="w-full h-9 rounded-md border bg-background px-3 text-sm"
+              >
+                {FONT_OPTIONS.map((f) => (
+                  <option key={f.value} value={f.value}>{f.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h3 className="text-sm font-semibold mb-3">Custom CSS</h3>
+          <Textarea
+            value={settings.customCSS || ""}
+            onChange={(e) => onChange({ ...settings, customCSS: e.target.value })}
+            placeholder="/* Add custom CSS here */"
+            className="text-xs font-mono min-h-[100px] resize-none"
+          />
+        </div>
+      </div>
+    </ScrollArea>
+  );
+}
+
+// --- SEO Settings Panel ---
+function SeoSettingsPanel({
+  page,
+  onChange,
+}: {
+  page: PageData;
+  onChange: (seo: PageData["seo"]) => void;
+}) {
+  const seo = page.seo || {};
+  return (
+    <ScrollArea className="h-full">
+      <div className="p-4 space-y-4">
+        <h3 className="text-sm font-semibold flex items-center gap-2">
+          <Search className="w-4 h-4" /> SEO Settings — {page.name}
+        </h3>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Page Title</Label>
+            <Input
+              value={seo.title || ""}
+              onChange={(e) => onChange({ ...seo, title: e.target.value })}
+              placeholder="My Awesome Page"
+              className="text-xs"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Meta Description</Label>
+            <Textarea
+              value={seo.description || ""}
+              onChange={(e) => onChange({ ...seo, description: e.target.value })}
+              placeholder="A brief description of this page for search engines..."
+              className="text-xs resize-none min-h-[60px]"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">OG Image URL</Label>
+            <Input
+              value={seo.ogImage || ""}
+              onChange={(e) => onChange({ ...seo, ogImage: e.target.value })}
+              placeholder="https://example.com/og-image.jpg"
+              className="text-xs"
+            />
+          </div>
+        </div>
+      </div>
+    </ScrollArea>
+  );
 }
 
 export default function Builder() {
@@ -186,14 +408,26 @@ export default function Builder() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
 
-  const [blocks, setBlocks] = useState<ComponentBlock[]>([]);
+  // Multi-page state
+  const [projectData, setProjectData] = useState<ProjectData>({
+    pages: [{ id: "home", name: "Home", path: "/", blocks: [], seo: {} }],
+    settings: {},
+  });
+  const [currentPageId, setCurrentPageId] = useState<string>("home");
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
-  const [history, setHistory] = useState<ComponentBlock[][]>([]);
+  const [history, setHistory] = useState<ProjectData[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
   const [submitNotes, setSubmitNotes] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [viewport, setViewport] = useState("desktop");
+  const [showAddPageDialog, setShowAddPageDialog] = useState(false);
+  const [newPageName, setNewPageName] = useState("");
+  const [renamePageId, setRenamePageId] = useState<string | null>(null);
+  const [renamePageName, setRenamePageName] = useState("");
+  const [rightTab, setRightTab] = useState("properties");
+
   const saveTimeoutRef = useRef<any>(null);
   const initialLoadRef = useRef(false);
 
@@ -203,41 +437,70 @@ export default function Builder() {
 
   useEffect(() => {
     if (project && !initialLoadRef.current) {
-      const schema = Array.isArray(project.schema) ? (project.schema as ComponentBlock[]) : [];
-      setBlocks(schema);
-      setHistory([schema]);
+      const data = migrateProjectSchema(project.schema);
+      setProjectData(data);
+      setCurrentPageId(data.pages[0]?.id || "home");
+      setHistory([data]);
       setHistoryIndex(0);
       initialLoadRef.current = true;
     }
   }, [project]);
 
-  const pushHistory = useCallback((newBlocks: ComponentBlock[]) => {
+  const currentPage = projectData.pages.find((p) => p.id === currentPageId) || projectData.pages[0];
+  const blocks = currentPage?.blocks || [];
+
+  const pushHistory = useCallback((newData: ProjectData) => {
     setHistory((prev) => {
       const trimmed = prev.slice(0, historyIndex + 1);
-      return [...trimmed, newBlocks];
+      return [...trimmed, newData];
     });
     setHistoryIndex((prev) => prev + 1);
   }, [historyIndex]);
 
-  const updateBlocks = useCallback((newBlocks: ComponentBlock[]) => {
-    setBlocks(newBlocks);
-    pushHistory(newBlocks);
+  const updateProjectData = useCallback((newData: ProjectData, skipHistory = false) => {
+    setProjectData(newData);
+    if (!skipHistory) pushHistory(newData);
 
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(async () => {
       setIsSaving(true);
       try {
-        await apiRequest("PATCH", `/api/projects/${projectId}`, { schema: newBlocks });
-      } catch {}
+        await apiRequest("PATCH", `/api/projects/${projectId}`, { schema: newData });
+      } catch { }
       setIsSaving(false);
     }, 1000);
   }, [projectId, pushHistory]);
+
+  const updateCurrentPageBlocks = useCallback((newBlocks: ComponentBlock[]) => {
+    const newData: ProjectData = {
+      ...projectData,
+      pages: projectData.pages.map((p) =>
+        p.id === currentPageId ? { ...p, blocks: newBlocks } : p
+      ),
+    };
+    updateProjectData(newData);
+  }, [projectData, currentPageId, updateProjectData]);
+
+  const updateSettings = useCallback((newSettings: ProjectSettings) => {
+    const newData: ProjectData = { ...projectData, settings: newSettings };
+    updateProjectData(newData);
+  }, [projectData, updateProjectData]);
+
+  const updatePageSeo = useCallback((seo: PageData["seo"]) => {
+    const newData: ProjectData = {
+      ...projectData,
+      pages: projectData.pages.map((p) =>
+        p.id === currentPageId ? { ...p, seo } : p
+      ),
+    };
+    updateProjectData(newData);
+  }, [projectData, currentPageId, updateProjectData]);
 
   const undo = useCallback(() => {
     if (historyIndex > 0) {
       const newIndex = historyIndex - 1;
       setHistoryIndex(newIndex);
-      setBlocks(history[newIndex]);
+      setProjectData(history[newIndex]);
     }
   }, [history, historyIndex]);
 
@@ -245,9 +508,79 @@ export default function Builder() {
     if (historyIndex < history.length - 1) {
       const newIndex = historyIndex + 1;
       setHistoryIndex(newIndex);
-      setBlocks(history[newIndex]);
+      setProjectData(history[newIndex]);
     }
   }, [history, historyIndex]);
+
+  // Page management
+  const addPage = useCallback((name: string) => {
+    const id = nanoid(8);
+    const path = "/" + name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+    const newPage: PageData = { id, name, path, blocks: [], seo: {} };
+    const newData: ProjectData = {
+      ...projectData,
+      pages: [...projectData.pages, newPage],
+    };
+    updateProjectData(newData);
+    setCurrentPageId(id);
+    // Auto-update navbar links on all pages
+    autoLinkNavbars(newData);
+  }, [projectData, updateProjectData]);
+
+  const deletePage = useCallback((pageId: string) => {
+    if (projectData.pages.length <= 1) {
+      toast({ title: "Cannot delete", description: "You need at least one page", variant: "destructive" });
+      return;
+    }
+    const newPages = projectData.pages.filter((p) => p.id !== pageId);
+    const newData: ProjectData = { ...projectData, pages: newPages };
+    if (currentPageId === pageId) {
+      setCurrentPageId(newPages[0].id);
+    }
+    updateProjectData(newData);
+    autoLinkNavbars(newData);
+  }, [projectData, currentPageId, updateProjectData, toast]);
+
+  const renamePage = useCallback((pageId: string, newName: string) => {
+    const newPath = "/" + newName.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+    const newData: ProjectData = {
+      ...projectData,
+      pages: projectData.pages.map((p) =>
+        p.id === pageId ? { ...p, name: newName, path: p.id === "home" ? "/" : newPath } : p
+      ),
+    };
+    updateProjectData(newData);
+    autoLinkNavbars(newData);
+  }, [projectData, updateProjectData]);
+
+  const autoLinkNavbars = useCallback((data: ProjectData) => {
+    const pageLinks = data.pages.map((p) => ({
+      label: p.name,
+      url: p.path === "/" ? "/" : p.path,
+    }));
+    const newData: ProjectData = {
+      ...data,
+      pages: data.pages.map((page) => ({
+        ...page,
+        blocks: page.blocks.map((block) => {
+          if (block.type === "navbar") {
+            return { ...block, props: { ...block.props, links: pageLinks } };
+          }
+          return block;
+        }),
+      })),
+    };
+    setProjectData(newData);
+    // Save without pushing to history again
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(async () => {
+      setIsSaving(true);
+      try {
+        await apiRequest("PATCH", `/api/projects/${projectId}`, { schema: newData });
+      } catch { }
+      setIsSaving(false);
+    }, 1000);
+  }, [projectId]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -267,6 +600,11 @@ export default function Builder() {
 
     if (activeData?.fromLibrary) {
       const newBlock = createDefaultBlock(activeData.type);
+      // If adding navbar, auto-populate with page links
+      if (activeData.type === "navbar") {
+        const pageLinks = projectData.pages.map((p) => ({ label: p.name, url: p.path }));
+        newBlock.props = { ...newBlock.props, links: pageLinks };
+      }
       const newBlocks = [...blocks];
       if (over.id === "canvas-drop-zone") {
         newBlocks.push(newBlock);
@@ -278,7 +616,7 @@ export default function Builder() {
           newBlocks.push(newBlock);
         }
       }
-      updateBlocks(newBlocks);
+      updateCurrentPageBlocks(newBlocks);
       setSelectedBlockId(newBlock.id);
       return;
     }
@@ -287,25 +625,25 @@ export default function Builder() {
       const oldIndex = blocks.findIndex((b) => b.id === active.id);
       const newIndex = blocks.findIndex((b) => b.id === over.id);
       if (oldIndex !== -1 && newIndex !== -1) {
-        updateBlocks(arrayMove(blocks, oldIndex, newIndex));
+        updateCurrentPageBlocks(arrayMove(blocks, oldIndex, newIndex));
       }
     }
   };
 
   const handleBlockUpdate = (updated: ComponentBlock) => {
     const newBlocks = blocks.map((b) => (b.id === updated.id ? updated : b));
-    updateBlocks(newBlocks);
+    updateCurrentPageBlocks(newBlocks);
   };
 
   const handleDeleteBlock = (id: string) => {
     const newBlocks = blocks.filter((b) => b.id !== id);
     if (selectedBlockId === id) setSelectedBlockId(null);
-    updateBlocks(newBlocks);
+    updateCurrentPageBlocks(newBlocks);
   };
 
   const handleApplyAiBlocks = (newBlocks: ComponentBlock[]) => {
     const withIds = newBlocks.map((b) => ({ ...b, id: b.id || nanoid(8) }));
-    updateBlocks([...blocks, ...withIds]);
+    updateCurrentPageBlocks([...blocks, ...withIds]);
     toast({ title: "Blocks applied", description: `${withIds.length} block(s) added to canvas` });
   };
 
@@ -320,7 +658,46 @@ export default function Builder() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${project?.name || "website"}.zip`;
+
+      const contentDisposition = res.headers.get("Content-Disposition");
+      let filename = "project.zip";
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+        if (filenameMatch && filenameMatch.length === 2) {
+          filename = filenameMatch[1];
+        }
+      }
+
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+    onSuccess: () => toast({ title: "Export Started", description: "Your basic HTML download should begin shortly." }),
+    onError: (error: Error) => toast({ title: "Export Failed", description: error.message, variant: "destructive" }),
+  });
+
+  const exportNextMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/export-next/${projectId}`, { credentials: "include" });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Export failed");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+
+      const contentDisposition = res.headers.get("Content-Disposition");
+      let filename = "website-nextjs.zip";
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+        if (filenameMatch && filenameMatch.length === 2) {
+          filename = filenameMatch[1];
+        }
+      }
+      a.download = filename;
+
       a.click();
       URL.revokeObjectURL(url);
     },
@@ -356,6 +733,7 @@ export default function Builder() {
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="h-screen flex flex-col bg-background">
+        {/* Top toolbar */}
         <header className="border-b bg-card flex items-center justify-between gap-2 px-3 py-2 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <Button variant="ghost" size="icon" onClick={() => navigate("/dashboard")} data-testid="button-back">
@@ -368,6 +746,23 @@ export default function Builder() {
             {isSaving && <span className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving</span>}
           </div>
           <div className="flex items-center gap-1 flex-wrap">
+            {/* Viewport Toggle */}
+            <div className="flex items-center border rounded-md mr-2">
+              {VIEWPORTS.map((v) => (
+                <Button
+                  key={v.id}
+                  variant={viewport === v.id ? "default" : "ghost"}
+                  size="icon"
+                  className="h-7 w-7 rounded-none first:rounded-l-md last:rounded-r-md"
+                  onClick={() => setViewport(v.id)}
+                  title={v.label}
+                  data-testid={`viewport-${v.id}`}
+                >
+                  <v.icon className="w-3.5 h-3.5" />
+                </Button>
+              ))}
+            </div>
+
             <Button variant="ghost" size="icon" onClick={undo} disabled={historyIndex <= 0} data-testid="button-undo">
               <Undo2 className="w-4 h-4" />
             </Button>
@@ -378,11 +773,23 @@ export default function Builder() {
               variant="outline"
               size="sm"
               onClick={() => exportMutation.mutate()}
-              disabled={exportMutation.isPending || !isPro}
+              disabled={exportMutation.isPending}
               data-testid="button-export"
+              title="Export as HTML/CSS/JS"
             >
               <Download className="w-4 h-4 mr-1" />
-              {!isPro ? "Pro only" : exportMutation.isPending ? "Exporting..." : "Export"}
+              {exportMutation.isPending ? "Exporting..." : "Export"}
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => exportNextMutation.mutate()}
+              disabled={exportNextMutation.isPending}
+              data-testid="button-export-next"
+              title="Export as Next.js React App"
+            >
+              <Download className="w-4 h-4 mr-1" />
+              {exportNextMutation.isPending ? "Exporting..." : "Export Next.js"}
             </Button>
             <Button variant="outline" size="sm" onClick={() => setShowSubmitDialog(true)} data-testid="button-submit">
               <Send className="w-4 h-4 mr-1" />
@@ -391,6 +798,56 @@ export default function Builder() {
           </div>
         </header>
 
+        {/* Page Tabs Bar */}
+        <div className="border-b bg-card/50 px-3 py-1.5 flex items-center gap-1 shrink-0 overflow-x-auto">
+          <span className="text-xs font-semibold text-muted-foreground mr-2 shrink-0">PAGES:</span>
+          {projectData.pages.map((page) => (
+            <div key={page.id} className="flex items-center gap-0.5 shrink-0">
+              <Button
+                variant={page.id === currentPageId ? "default" : "ghost"}
+                size="sm"
+                className="h-7 text-xs px-3"
+                onClick={() => { setCurrentPageId(page.id); setSelectedBlockId(null); }}
+                data-testid={`page-tab-${page.id}`}
+              >
+                <FileText className="w-3 h-3 mr-1" />
+                {page.name}
+                <span className="ml-1 text-[10px] opacity-60">({page.blocks.length})</span>
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0">
+                    <MoreVertical className="w-3 h-3" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem onClick={() => { setRenamePageId(page.id); setRenamePageName(page.name); }}>
+                    <Pencil className="w-3.5 h-3.5 mr-2" /> Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="text-destructive"
+                    onClick={() => deletePage(page.id)}
+                    disabled={projectData.pages.length <= 1}
+                  >
+                    <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          ))}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs shrink-0"
+            onClick={() => { setNewPageName(""); setShowAddPageDialog(true); }}
+            data-testid="button-add-page"
+          >
+            <Plus className="w-3 h-3 mr-1" />
+            Add Page
+          </Button>
+        </div>
+
+        {/* Main content */}
         <div className="flex flex-1 min-h-0">
           <div className="w-64 border-r bg-card shrink-0 overflow-hidden">
             <ComponentLibrary />
@@ -401,27 +858,47 @@ export default function Builder() {
             selectedBlockId={selectedBlockId}
             onSelectBlock={setSelectedBlockId}
             onDeleteBlock={handleDeleteBlock}
+            viewport={viewport}
+            settings={projectData.settings || {}}
             onAddBlock={(type: string) => {
               const newBlock = createDefaultBlock(type);
-              updateBlocks([...blocks, newBlock]);
+              if (type === "navbar") {
+                const pageLinks = projectData.pages.map((p) => ({ label: p.name, url: p.path }));
+                newBlock.props = { ...newBlock.props, links: pageLinks };
+              }
+              updateCurrentPageBlocks([...blocks, newBlock]);
               setSelectedBlockId(newBlock.id);
             }}
           />
 
           <div className="w-80 border-l bg-card shrink-0 overflow-hidden">
-            <Tabs defaultValue="properties" className="h-full flex flex-col">
+            <Tabs value={rightTab} onValueChange={setRightTab} className="h-full flex flex-col">
               <TabsList className="mx-3 mt-2 shrink-0">
-                <TabsTrigger value="properties" className="flex-1 gap-1" data-testid="tab-properties">
+                <TabsTrigger value="properties" className="flex-1 gap-1 text-xs" data-testid="tab-properties">
                   <Settings className="w-3.5 h-3.5" />
-                  Properties
+                  Props
                 </TabsTrigger>
-                <TabsTrigger value="ai" className="flex-1 gap-1" data-testid="tab-ai">
+                <TabsTrigger value="style" className="flex-1 gap-1 text-xs" data-testid="tab-style">
+                  <Palette className="w-3.5 h-3.5" />
+                  Style
+                </TabsTrigger>
+                <TabsTrigger value="seo" className="flex-1 gap-1 text-xs" data-testid="tab-seo">
+                  <Search className="w-3.5 h-3.5" />
+                  SEO
+                </TabsTrigger>
+                <TabsTrigger value="ai" className="flex-1 gap-1 text-xs" data-testid="tab-ai">
                   <Sparkles className="w-3.5 h-3.5" />
                   AI
                 </TabsTrigger>
               </TabsList>
               <TabsContent value="properties" className="flex-1 mt-0 overflow-hidden">
                 <PropertiesPanel block={selectedBlock} onChange={handleBlockUpdate} />
+              </TabsContent>
+              <TabsContent value="style" className="flex-1 mt-0 overflow-hidden">
+                <StyleSettingsPanel settings={projectData.settings || {}} onChange={updateSettings} />
+              </TabsContent>
+              <TabsContent value="seo" className="flex-1 mt-0 overflow-hidden">
+                {currentPage && <SeoSettingsPanel page={currentPage} onChange={updatePageSeo} />}
               </TabsContent>
               <TabsContent value="ai" className="flex-1 mt-0 overflow-hidden">
                 <AiPanel onApplyBlocks={handleApplyAiBlocks} projectId={projectId} />
@@ -431,6 +908,7 @@ export default function Builder() {
         </div>
       </div>
 
+      {/* Submit Dialog */}
       <Dialog open={showSubmitDialog} onOpenChange={setShowSubmitDialog}>
         <DialogContent>
           <DialogHeader>
@@ -453,6 +931,70 @@ export default function Builder() {
               <Button type="button" variant="outline" onClick={() => setShowSubmitDialog(false)}>Cancel</Button>
               <Button type="submit" disabled={submitMutation.isPending} data-testid="button-confirm-submit">
                 {submitMutation.isPending ? "Submitting..." : "Submit"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Page Dialog */}
+      <Dialog open={showAddPageDialog} onOpenChange={setShowAddPageDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add New Page</DialogTitle>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (newPageName.trim()) {
+                addPage(newPageName.trim());
+                setShowAddPageDialog(false);
+                setNewPageName("");
+              }
+            }}
+          >
+            <Input
+              placeholder="Page name (e.g. About, Contact, Blog)"
+              value={newPageName}
+              onChange={(e) => setNewPageName(e.target.value)}
+              autoFocus
+              data-testid="input-page-name"
+            />
+            <DialogFooter className="mt-4">
+              <Button type="button" variant="outline" onClick={() => setShowAddPageDialog(false)}>Cancel</Button>
+              <Button type="submit" disabled={!newPageName.trim()} data-testid="button-create-page">
+                Create Page
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rename Page Dialog */}
+      <Dialog open={!!renamePageId} onOpenChange={() => setRenamePageId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename Page</DialogTitle>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (renamePageId && renamePageName.trim()) {
+                renamePage(renamePageId, renamePageName.trim());
+                setRenamePageId(null);
+              }
+            }}
+          >
+            <Input
+              value={renamePageName}
+              onChange={(e) => setRenamePageName(e.target.value)}
+              autoFocus
+              data-testid="input-rename-page"
+            />
+            <DialogFooter className="mt-4">
+              <Button type="button" variant="outline" onClick={() => setRenamePageId(null)}>Cancel</Button>
+              <Button type="submit" disabled={!renamePageName.trim()} data-testid="button-rename-page">
+                Rename
               </Button>
             </DialogFooter>
           </form>

@@ -15,6 +15,8 @@ import Billing from "@/pages/billing";
 import AdminSubmissions from "@/pages/admin-submissions";
 import MySubmissions from "@/pages/my-submissions";
 import Support from "@/pages/support";
+import Contact from "@/pages/contact";
+import AdminCrm from "@/pages/admin-crm";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
@@ -58,6 +60,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Landing} />
+      <Route path="/contact" component={Contact} />
       <Route path="/login">
         <GuestRoute component={AuthLogin} />
       </Route>
@@ -75,6 +78,9 @@ function Router() {
       </Route>
       <Route path="/admin/submissions">
         <ProtectedRoute component={AdminSubmissions} />
+      </Route>
+      <Route path="/admin/crm">
+        <ProtectedRoute component={AdminCrm} />
       </Route>
       <Route path="/submissions">
         <ProtectedRoute component={MySubmissions} />

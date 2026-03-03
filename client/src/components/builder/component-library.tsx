@@ -1,32 +1,11 @@
 import { useDraggable } from "@dnd-kit/core";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  LayoutTemplate,
-  Heading,
-  Type,
-  MousePointer,
-  ImageIcon,
-  Minus,
-  ArrowUpDown,
-  Star,
-  Square,
-  Navigation,
-  Footprints,
-  ShoppingBag,
-  DollarSign,
-  Mail,
-  Quote,
-  GalleryHorizontal,
-  Video,
-  HelpCircle,
-  BarChart3,
-  Users,
-  Share2,
-  Flag,
-  Timer,
-  Newspaper,
-  Building2,
-  Megaphone,
+  LayoutTemplate, Heading, Type, MousePointer, ImageIcon, Minus,
+  ArrowUpDown, Star, Square, Navigation, Footprints, ShoppingBag,
+  DollarSign, Mail, Quote, GalleryHorizontal, Video, HelpCircle,
+  BarChart3, Users, Share2, Flag, Timer, Newspaper, Building2, Megaphone,
+  BookOpen, List, ShoppingCart, CreditCard, MapPin, CalendarDays, LogIn,
 } from "lucide-react";
 
 const COMPONENT_CATEGORIES = [
@@ -59,6 +38,15 @@ const COMPONENT_CATEGORIES = [
     items: [
       { type: "product-card", label: "Product Card", icon: ShoppingBag, description: "Product with price & cart" },
       { type: "pricing-table", label: "Pricing Table", icon: DollarSign, description: "Plan comparison table" },
+      { type: "cart", label: "Shopping Cart", icon: ShoppingCart, description: "Cart with items & total" },
+      { type: "checkout-form", label: "Checkout Form", icon: CreditCard, description: "Payment & shipping form" },
+    ],
+  },
+  {
+    label: "Blog",
+    items: [
+      { type: "blog-post", label: "Blog Post", icon: BookOpen, description: "Single blog post card" },
+      { type: "blog-list", label: "Blog List", icon: List, description: "Grid of blog post cards" },
     ],
   },
   {
@@ -71,13 +59,16 @@ const COMPONENT_CATEGORIES = [
       { type: "team", label: "Team Members", icon: Users, description: "Team profiles grid" },
       { type: "logo-cloud", label: "Logo Cloud", icon: Building2, description: "Partner/client logos" },
       { type: "countdown", label: "Countdown", icon: Timer, description: "Event countdown timer" },
+      { type: "map", label: "Map", icon: MapPin, description: "Location map embed" },
     ],
   },
   {
-    label: "Forms & Social",
+    label: "Forms & Auth",
     items: [
       { type: "contact-form", label: "Contact Form", icon: Mail, description: "Contact/inquiry form" },
       { type: "newsletter", label: "Newsletter", icon: Newspaper, description: "Email signup form" },
+      { type: "booking-form", label: "Booking Form", icon: CalendarDays, description: "Appointment booking" },
+      { type: "login-form", label: "Login Form", icon: LogIn, description: "User sign-in form" },
       { type: "social-links", label: "Social Links", icon: Share2, description: "Social media icons" },
     ],
   },

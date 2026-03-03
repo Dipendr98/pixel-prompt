@@ -37,6 +37,48 @@ BuilderPro is built to run on Replit with zero configuration.
 
 ---
 
+## Deploy on Railway with Supabase
+
+BuilderPro (PixelPrompt) can be easily hosted on Railway with a Supabase PostgreSQL database. This is the recommended production setup.
+
+### Step 1: Set up Supabase (Database)
+1. Go to [supabase.com](https://supabase.com/) and create a new project.
+2. Once the database is provisioned, go to **Project Settings -> Database**.
+3. Locate the **Connection String** (Node.js/URI format).
+4. It should look like: \`postgresql://postgres.[ref]:[password]@aws-0-eu-central-1.pooler.supabase.com:6543/postgres\`
+5. Make sure to replace \`[password]\` with your actual database password.
+
+### Step 2: Prepare Railway
+1. Push your local codebase to a GitHub repository.
+2. Go to [railway.app](https://railway.app/) and click **New Project**.
+3. Select **Deploy from GitHub repo** and choose your repository.
+4. Once the service is created, DO NOT deploy yet. Head to the **Variables** tab.
+
+### Step 3: Configure Environment Variables
+Add the following variables in Railway's Settings -> Variables:
+- \`DATABASE_URL\`: Your Supabase connection string from Step 1.
+- \`NODE_ENV\`: \`production\`
+- \`SESSION_SECRET\`: A long random string (e.g., \`my_super_secret_key_32_chars_long\`).
+- \`NVIDIA_API_KEY\`: Your NVIDIA API key for the AI functionality.
+- \`RAZORPAY_KEY_ID\`: Your Razorpay Key ID.
+- \`RAZORPAY_KEY_SECRET\`: Your Razorpay Secret.
+- \`RAZORPAY_WEBHOOK_SECRET\`: Your Razorpay Webhook Secret.
+- \`SMTP_HOST\`, \`SMTP_PORT\`, \`SMTP_SECURE\`, \`SMTP_USER\`, \`SMTP_PASS\`: Your Nodemailer SMTP email configuration.
+- \`ADMIN_EMAIL\`: Where you want to receive admin notifications.
+
+### Step 4: Build Command
+1. Railway automatically reads \`package.json\`.
+2. Under **Settings -> Build**, ensure the Build Command is: \`npm run build\`
+3. Under **Settings -> Deploy**, ensure the Start Command is: \`npm run start\`
+
+### Step 5: Deploy & Custom Domain
+1. Trigger a deployment. Railway will install dependencies, build the Vite frontend, and start the Express server.
+2. Under **Settings -> Networking**, click **Generate Domain** to get your public \`.up.railway.app\` URL.
+3. If using your custom domain (\`pixel-prompt.app\`), click **Custom Domain**, enter \`pixel-prompt.app\`, and add the generated CNAME record to your DNS settings (e.g., in Namecheap/GoDaddy).
+4. **Important**: Go to your Razorpay dashboard and update your Webhook URL to: \`https://pixel-prompt.app/api/webhooks/razorpay\`
+
+---
+
 ## Deploy on Your Own Server
 
 ### Prerequisites:

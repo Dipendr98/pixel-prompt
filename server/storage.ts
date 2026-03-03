@@ -2,11 +2,13 @@ import { eq, and, lt, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import { desc } from "drizzle-orm";
+import { randomUUID } from "crypto";
 import {
-  users, projects, subscriptions, aiUsage, submissions, supportTickets, automationLogs,
+  users, projects, subscriptions, aiUsage, submissions, supportTickets, automationLogs, userQueries, siteSettings,
   type User, type InsertUser, type Project, type InsertProject,
   type Subscription, type AiUsage, type Submission, type InsertSubmission,
   type SupportTicket, type InsertSupportTicket, type AutomationLog,
+  type UserQuery, type InsertUserQuery, type SiteSettings, type InsertSiteSettings
 } from "@shared/schema";
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
@@ -15,7 +17,10 @@ const db = drizzle(pool);
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
+  getUserByResetToken(token: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  updateUserResetToken(userId: string, token: string | null, expires: Date | null): Promise<void>;
+  updateUserPassword(userId: string, hashedPassword: string): Promise<void>;
 
   getProjects(userId: string): Promise<Project[]>;
   getProject(id: string, userId: string): Promise<Project | undefined>;
@@ -57,6 +62,13 @@ export interface IStorage {
   resetAiUsage(): Promise<number>;
   expireSubscriptions(): Promise<number>;
   cleanupPendingPayments(): Promise<number>;
+
+  createUserQuery(data: InsertUserQuery): Promise<UserQuery>;
+  getAllUserQueries(): Promise<UserQuery[]>;
+  updateUserQueryReply(id: string, reply: string): Promise<void>;
+
+  getSiteSettings(): Promise<SiteSettings>;
+  updateSiteSettings(data: Partial<InsertSiteSettings>): Promise<SiteSettings>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -70,9 +82,22 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
+  async getUserByResetToken(token: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.resetPasswordToken, token));
+    return user;
+  }
+
   async createUser(insertUser: InsertUser): Promise<User> {
     const [user] = await db.insert(users).values(insertUser).returning();
     return user;
+  }
+
+  async updateUserResetToken(userId: string, token: string | null, expires: Date | null): Promise<void> {
+    await db.update(users).set({ resetPasswordToken: token, resetPasswordExpires: expires }).where(eq(users.id, userId));
+  }
+
+  async updateUserPassword(userId: string, hashedPassword: string): Promise<void> {
+    await db.update(users).set({ password: hashedPassword }).where(eq(users.id, userId));
   }
 
   async getProjects(userId: string): Promise<Project[]> {
@@ -335,6 +360,421 @@ export class DatabaseStorage implements IStorage {
       .returning();
     return result.length;
   }
+
+  async createUserQuery(data: InsertUserQuery): Promise<UserQuery> {
+    const [query] = await db.insert(userQueries).values(data).returning();
+    return query;
+  }
+
+  async getAllUserQueries(): Promise<UserQuery[]> {
+    return db.select().from(userQueries).orderBy(desc(userQueries.createdAt));
+  }
+
+  async updateUserQueryReply(id: string, reply: string): Promise<void> {
+    await db.update(userQueries).set({ adminReply: reply, status: "answered", updatedAt: new Date() }).where(eq(userQueries.id, id));
+  }
+
+  async getSiteSettings(): Promise<SiteSettings> {
+    const [settings] = await db.select().from(siteSettings).where(eq(siteSettings.id, 1));
+    if (!settings) {
+      const [newSettings] = await db.insert(siteSettings).values({ id: 1 }).returning();
+      return newSettings;
+    }
+    return settings;
+  }
+
+  async updateSiteSettings(data: Partial<InsertSiteSettings>): Promise<SiteSettings> {
+    const [settings] = await db.update(siteSettings).set({ ...data, updatedAt: new Date() }).where(eq(siteSettings.id, 1)).returning();
+    if (!settings) {
+      const [newSettings] = await db.insert(siteSettings).values({ id: 1, ...data }).returning();
+      return newSettings;
+    }
+    return settings;
+  }
 }
 
-export const storage = new DatabaseStorage();
+export class InMemoryStorage implements IStorage {
+  private users = new Map<string, User>();
+  private projects = new Map<string, Project>();
+  private subscriptions = new Map<string, Subscription>();
+  private aiUsageMap = new Map<string, number>();
+  private submissionsMap = new Map<string, Submission>();
+  private supportTicketsMap = new Map<string, SupportTicket>();
+  private automationLogsMap = new Map<string, AutomationLog>();
+  private userQueriesMap = new Map<string, UserQuery>();
+  private siteSettingsMap = new Map<number, SiteSettings>();
+
+  async getUser(id: string): Promise<User | undefined> {
+    return this.users.get(id);
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    return Array.from(this.users.values()).find(u => u.email === email);
+  }
+
+  async getUserByResetToken(token: string): Promise<User | undefined> {
+    return Array.from(this.users.values()).find(u => u.resetPasswordToken === token);
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const user: User = {
+      id: randomUUID(),
+      role: "user",
+      resetPasswordToken: null,
+      resetPasswordExpires: null,
+      ...insertUser
+    };
+    this.users.set(user.id, user);
+    return user;
+  }
+
+  async updateUserResetToken(userId: string, token: string | null, expires: Date | null): Promise<void> {
+    const user = this.users.get(userId);
+    if (user) {
+      user.resetPasswordToken = token;
+      user.resetPasswordExpires = expires;
+    }
+  }
+
+  async updateUserPassword(userId: string, hashedPassword: string): Promise<void> {
+    const user = this.users.get(userId);
+    if (user) {
+      user.password = hashedPassword;
+    }
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const user: User = { id: randomUUID(), role: "user", ...insertUser };
+    this.users.set(user.id, user);
+    return user;
+  }
+
+  async getProjects(userId: string): Promise<Project[]> {
+    return Array.from(this.projects.values()).filter(p => p.userId === userId);
+  }
+
+  async getProject(id: string, userId: string): Promise<Project | undefined> {
+    const p = this.projects.get(id);
+    return p?.userId === userId ? p : undefined;
+  }
+
+  async getProjectById(id: string): Promise<Project | undefined> {
+    return this.projects.get(id);
+  }
+
+  async createProject(userId: string, data: InsertProject): Promise<Project> {
+    const project: Project = {
+      id: randomUUID(),
+      userId,
+      name: data.name,
+      schema: data.schema ?? [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.projects.set(project.id, project);
+    return project;
+  }
+
+  async updateProject(id: string, userId: string, data: Partial<InsertProject>): Promise<Project | undefined> {
+    const project = this.projects.get(id);
+    if (!project || project.userId !== userId) return undefined;
+    const updated = { ...project, ...data, updatedAt: new Date() };
+    this.projects.set(id, updated);
+    return updated;
+  }
+
+  async deleteProject(id: string, userId: string): Promise<boolean> {
+    const project = this.projects.get(id);
+    if (!project || project.userId !== userId) return false;
+    Array.from(this.submissionsMap.entries()).forEach(([sid, sub]) => {
+      if (sub.projectId === id) this.submissionsMap.delete(sid);
+    });
+    this.projects.delete(id);
+    return true;
+  }
+
+  async getSubscription(userId: string): Promise<Subscription | undefined> {
+    return this.subscriptions.get(userId);
+  }
+
+  async upsertSubscription(userId: string, data: Partial<Subscription>): Promise<Subscription> {
+    const existing = this.subscriptions.get(userId);
+    if (existing) {
+      const updated = { ...existing, ...data, updatedAt: new Date() };
+      this.subscriptions.set(userId, updated);
+      return updated;
+    }
+    const created: Subscription = {
+      userId,
+      provider: "razorpay",
+      status: "free",
+      razorpayCustomerId: null,
+      razorpaySubscriptionId: null,
+      currentPeriodEnd: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      ...data,
+    };
+    this.subscriptions.set(userId, created);
+    return created;
+  }
+
+  async getAiUsage(userId: string, day: string): Promise<number> {
+    return this.aiUsageMap.get(`${userId}:${day}`) ?? 0;
+  }
+
+  async incrementAiUsage(userId: string, day: string): Promise<void> {
+    const key = `${userId}:${day}`;
+    this.aiUsageMap.set(key, (this.aiUsageMap.get(key) ?? 0) + 1);
+  }
+
+  async getSubmissions(userId: string): Promise<(Submission & { projectName?: string })[]> {
+    const subs = [...this.submissionsMap.values()].filter(s => s.userId === userId);
+    return subs.map(s => ({ ...s, projectName: this.projects.get(s.projectId)?.name }));
+  }
+
+  async getAllSubmissions(): Promise<(Submission & { projectName?: string; userEmail?: string })[]> {
+    return [...this.submissionsMap.values()].map(s => ({
+      ...s,
+      projectName: this.projects.get(s.projectId)?.name,
+      userEmail: this.users.get(s.userId)?.email,
+    }));
+  }
+
+  async createSubmission(userId: string, data: InsertSubmission): Promise<Submission> {
+    const sub: Submission = {
+      id: randomUUID(),
+      userId,
+      projectId: data.projectId,
+      notes: data.notes ?? null,
+      status: "new",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.submissionsMap.set(sub.id, sub);
+    return sub;
+  }
+
+  async updateSubmissionStatus(id: string, status: string): Promise<void> {
+    const sub = this.submissionsMap.get(id);
+    if (sub) this.submissionsMap.set(id, { ...sub, status, updatedAt: new Date() });
+  }
+
+  async getSupportTickets(userId: string): Promise<(SupportTicket & { userEmail?: string })[]> {
+    return [...this.supportTicketsMap.values()].filter(t => t.userId === userId);
+  }
+
+  async getAllSupportTickets(): Promise<(SupportTicket & { userEmail?: string })[]> {
+    return [...this.supportTicketsMap.values()].map(t => ({
+      ...t,
+      userEmail: this.users.get(t.userId)?.email,
+    }));
+  }
+
+  async createSupportTicket(userId: string, data: InsertSupportTicket): Promise<SupportTicket> {
+    const ticket: SupportTicket = {
+      id: randomUUID(),
+      userId,
+      subject: data.subject,
+      message: data.message,
+      status: "open",
+      adminReply: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.supportTicketsMap.set(ticket.id, ticket);
+    return ticket;
+  }
+
+  async updateSupportTicket(id: string, data: Partial<SupportTicket>): Promise<void> {
+    const ticket = this.supportTicketsMap.get(id);
+    if (ticket) this.supportTicketsMap.set(id, { ...ticket, ...data, updatedAt: new Date() });
+  }
+
+  async getAllUsers(): Promise<Omit<User, "password">[]> {
+    return [...this.users.values()].map(({ password: _, ...u }) => u);
+  }
+
+  async getAllProjects(): Promise<(Project & { userEmail?: string })[]> {
+    return [...this.projects.values()].map(p => ({
+      ...p,
+      userEmail: this.users.get(p.userId)?.email,
+    }));
+  }
+
+  async getAdminStats(): Promise<{ totalUsers: number; totalProjects: number; activeSubscriptions: number; openTickets: number; totalSubmissions: number }> {
+    return {
+      totalUsers: this.users.size,
+      totalProjects: this.projects.size,
+      activeSubscriptions: [...this.subscriptions.values()].filter(s => s.status === "active").length,
+      openTickets: [...this.supportTicketsMap.values()].filter(t => t.status === "open").length,
+      totalSubmissions: this.submissionsMap.size,
+    };
+  }
+
+  async cancelSubscription(userId: string): Promise<void> {
+    const sub = this.subscriptions.get(userId);
+    if (sub) this.subscriptions.set(userId, { ...sub, status: "cancelled", updatedAt: new Date() });
+  }
+
+  async updateUserRole(userId: string, role: string): Promise<void> {
+    const user = this.users.get(userId);
+    if (user) this.users.set(userId, { ...user, role });
+  }
+
+  async deleteUserAdmin(userId: string): Promise<void> {
+    for (const key of [...this.aiUsageMap.keys()]) {
+      if (key.startsWith(userId + ":")) this.aiUsageMap.delete(key);
+    }
+    for (const [id, t] of this.supportTicketsMap) {
+      if (t.userId === userId) this.supportTicketsMap.delete(id);
+    }
+    for (const [id, p] of this.projects) {
+      if (p.userId === userId) {
+        for (const [sid, s] of this.submissionsMap) {
+          if (s.projectId === id) this.submissionsMap.delete(sid);
+        }
+        this.projects.delete(id);
+      }
+    }
+    for (const [id, s] of this.submissionsMap) {
+      if (s.userId === userId) this.submissionsMap.delete(id);
+    }
+    this.subscriptions.delete(userId);
+    this.users.delete(userId);
+  }
+
+  async deleteProjectAdmin(projectId: string): Promise<void> {
+    for (const [id, s] of this.submissionsMap) {
+      if (s.projectId === projectId) this.submissionsMap.delete(id);
+    }
+    this.projects.delete(projectId);
+  }
+
+  async getAllSubscriptions(): Promise<(Subscription & { userEmail?: string })[]> {
+    return [...this.subscriptions.values()].map(s => ({
+      ...s,
+      userEmail: this.users.get(s.userId)?.email,
+    }));
+  }
+
+  async getRecentActivity(limit = 20): Promise<any[]> {
+    const activities: any[] = [];
+    for (const p of this.projects.values()) {
+      const u = this.users.get(p.userId);
+      activities.push({ type: "project_created", description: `${u?.email || "User"} created project "${p.name}"`, timestamp: p.createdAt });
+    }
+    for (const t of this.supportTicketsMap.values()) {
+      const u = this.users.get(t.userId);
+      activities.push({ type: "ticket_created", description: `${u?.email || "User"} opened ticket: ${t.subject}`, timestamp: t.createdAt });
+    }
+    for (const s of this.submissionsMap.values()) {
+      const u = this.users.get(s.userId);
+      activities.push({ type: "submission_created", description: `${u?.email || "User"} submitted a project for review`, timestamp: s.createdAt });
+    }
+    for (const a of this.automationLogsMap.values()) {
+      activities.push({ type: "automation_run", description: `Job "${a.jobName}" ${a.status}`, timestamp: a.startedAt });
+    }
+    activities.sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
+    return activities.slice(0, limit);
+  }
+
+  async createAutomationLog(jobName: string, triggeredBy: string): Promise<AutomationLog> {
+    const log: AutomationLog = {
+      id: randomUUID(),
+      jobName,
+      triggeredBy,
+      status: "running",
+      message: null,
+      startedAt: new Date(),
+      completedAt: null,
+    };
+    this.automationLogsMap.set(log.id, log);
+    return log;
+  }
+
+  async updateAutomationLog(id: string, status: string, message: string): Promise<void> {
+    const log = this.automationLogsMap.get(id);
+    if (log) this.automationLogsMap.set(id, { ...log, status, message, completedAt: new Date() });
+  }
+
+  async getAutomationLogs(limit = 50): Promise<AutomationLog[]> {
+    return [...this.automationLogsMap.values()]
+      .sort((a, b) => new Date(b.startedAt || 0).getTime() - new Date(a.startedAt || 0).getTime())
+      .slice(0, limit);
+  }
+
+  async resetAiUsage(): Promise<number> {
+    const today = new Date().toISOString().split("T")[0];
+    let count = 0;
+    for (const key of [...this.aiUsageMap.keys()]) {
+      if (!key.endsWith(`:${today}`)) {
+        this.aiUsageMap.delete(key);
+        count++;
+      }
+    }
+    return count;
+  }
+
+  async expireSubscriptions(): Promise<number> {
+    let count = 0;
+    for (const [userId, sub] of this.subscriptions) {
+      if (sub.status === "active" && sub.currentPeriodEnd && sub.currentPeriodEnd < new Date()) {
+        this.subscriptions.set(userId, { ...sub, status: "expired", updatedAt: new Date() });
+        count++;
+      }
+    }
+    return count;
+  }
+
+  async cleanupPendingPayments(): Promise<number> {
+    const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
+    let count = 0;
+    for (const [userId, sub] of this.subscriptions) {
+      if (sub.status === "pending" && sub.createdAt && sub.createdAt < thirtyMinAgo) {
+        this.subscriptions.set(userId, { ...sub, status: "failed", updatedAt: new Date() });
+        count++;
+      }
+    }
+    return count;
+  }
+
+  async createUserQuery(data: InsertUserQuery): Promise<UserQuery> {
+    const query: UserQuery = { id: randomUUID(), status: "pending", adminReply: null, createdAt: new Date(), updatedAt: new Date(), ...data };
+    this.userQueriesMap.set(query.id, query);
+    return query;
+  }
+
+  async getAllUserQueries(): Promise<UserQuery[]> {
+    return Array.from(this.userQueriesMap.values()).sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0));
+  }
+
+  async updateUserQueryReply(id: string, reply: string): Promise<void> {
+    const query = this.userQueriesMap.get(id);
+    if (query) {
+      query.adminReply = reply;
+      query.status = "answered";
+      query.updatedAt = new Date();
+    }
+  }
+
+  async getSiteSettings(): Promise<SiteSettings> {
+    let settings = this.siteSettingsMap.get(1);
+    if (!settings) {
+      settings = { id: 1, contactEmail: "support@pixel-prompt.app", contactPhone: "+1 (555) 000-0000", contactAddress: "PixelPrompt HQ, San Francisco, CA", updatedAt: new Date() };
+      this.siteSettingsMap.set(1, settings);
+    }
+    return settings;
+  }
+
+  async updateSiteSettings(data: Partial<InsertSiteSettings>): Promise<SiteSettings> {
+    const settings = await this.getSiteSettings();
+    const updated = { ...settings, ...data, updatedAt: new Date() };
+    this.siteSettingsMap.set(1, updated);
+    return updated;
+  }
+}
+
+export const storage: IStorage = process.env.DATABASE_URL
+  ? new DatabaseStorage()
+  : new InMemoryStorage();

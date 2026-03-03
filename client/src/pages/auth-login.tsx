@@ -38,7 +38,7 @@ export default function AuthLogin() {
             <div className="flex items-center justify-center w-10 h-10 rounded-md bg-primary">
               <Layers className="w-5 h-5 text-primary-foreground" />
             </div>
-            <span className="text-xl font-semibold tracking-tight" data-testid="text-brand">BuilderPro</span>
+            <span className="text-xl font-semibold tracking-tight" data-testid="text-brand">PixelPrompt</span>
           </Link>
           <p className="text-muted-foreground text-sm">Sign in to your account to continue building</p>
         </div>

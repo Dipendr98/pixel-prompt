@@ -67,7 +67,7 @@ export default function Support() {
             <div className="flex items-center justify-center w-8 h-8 rounded-md bg-primary">
               <Layers className="w-4 h-4 text-primary-foreground" />
             </div>
-            <span className="font-semibold tracking-tight">BuilderPro</span>
+            <span className="font-semibold tracking-tight">PixelPrompt</span>
           </Link>
         </div>
       </header>
