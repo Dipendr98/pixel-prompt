@@ -60,6 +60,7 @@ Add the following variables in Railway's Settings -> Variables:
 - \`NODE_ENV\`: \`production\`
 - \`SESSION_SECRET\`: A long random string (e.g., \`my_super_secret_key_32_chars_long\`).
 - \`NVIDIA_API_KEY\`: Your NVIDIA API key for the AI functionality.
+- \`GITHUB_TOKEN\`: (Optional) Your GitHub Personal Access Token for the tertiary fallback AI model.
 - \`RAZORPAY_KEY_ID\`: Your Razorpay Key ID.
 - \`RAZORPAY_KEY_SECRET\`: Your Razorpay Secret.
 - \`RAZORPAY_WEBHOOK_SECRET\`: Your Razorpay Webhook Secret.

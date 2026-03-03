@@ -691,8 +691,9 @@ export async function registerRoutes(
 async function callAI(prompt: string): Promise<{ blocks: any[]; message: string }> {
   const primaryApiKey = process.env.NVIDIA_API_KEY;
   const secondaryApiKey = "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";
+  const tertiaryApiKey = process.env.GITHUB_TOKEN; // Loaded from environment instead of hardcoded
 
-  if (!primaryApiKey && !secondaryApiKey) {
+  if (!primaryApiKey && !secondaryApiKey && !tertiaryApiKey) {
     throw new Error("AI service is not configured. Please contact the administrator.");
   }
 
@@ -803,16 +804,18 @@ Return ONLY the minified JSON array.`;
       });
 
       if (!response.ok) {
-        console.warn(`[AI] Secondary model failed(${response.status}).Attempting tertiary Github fallback...`);
-        response = await fetch("https://models.inference.ai.azure.com/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${tertiaryApiKey} `,
-            "Accept": "application/json",
-          },
-          body: JSON.stringify(req3Body),
-        });
+        console.warn(`[AI] Secondary model failed (${response.status}). Attempting tertiary Github fallback...`);
+        if (tertiaryApiKey) {
+          response = await fetch("https://models.inference.ai.azure.com/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${tertiaryApiKey}`,
+              "Accept": "application/json",
+            },
+            body: JSON.stringify(req3Body),
+          });
+        }
 
         if (!response.ok) {
           const errText = await response.text().catch(() => "");
