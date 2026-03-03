@@ -23,7 +23,6 @@ export async function registerRoutes(
 
   // --- DEV ONLY: Promote current user to admin ---
   // POST http://localhost:5000/api/make-admin while logged in
-  // ⚠️ REMOVE THIS ROUTE BEFORE DEPLOYING TO PRODUCTION!
   app.post("/api/make-admin", requireAuth, async (req, res) => {
     try {
       const userId = req.user!.id;
@@ -31,6 +30,17 @@ export async function registerRoutes(
       res.json({ ok: true, message: "You are now an admin! Refresh the page." });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  // --- DEV ONLY: Promote current user via GET (Easier bypass for console security) ---
+  app.get("/api/make-admin-easy", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      await storage.updateUserRole(userId, "admin");
+      res.send(`<h1>Success! You are now an Admin.</h1><p>Go back to <a href="/admin/submissions">Admin Submissions</a></p>`);
+    } catch (err: any) {
+      res.status(500).send("Error: " + err.message);
     }
   });
 

@@ -466,7 +466,7 @@ export default function Dashboard() {
               <Send className="w-4 h-4 mr-1" /> Submissions
             </Button>
             {user?.role === "admin" && (
-              <Button variant="ghost" size="sm" onClick={() => navigate("/admin")}>
+              <Button variant="ghost" size="sm" onClick={() => navigate("/admin/submissions")}>
                 <ShieldCheck className="w-4 h-4 mr-1" /> Admin
               </Button>
             )}

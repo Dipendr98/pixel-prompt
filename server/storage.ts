@@ -239,7 +239,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAllUsers(): Promise<Omit<User, "password">[]> {
-    const allUsers = await db.select({ id: users.id, email: users.email, role: users.role }).from(users);
+    const allUsers = await db.select({
+      id: users.id,
+      email: users.email,
+      role: users.role,
+      resetPasswordToken: users.resetPasswordToken,
+      resetPasswordExpires: users.resetPasswordExpires,
+    }).from(users);
     return allUsers;
   }
 
@@ -272,9 +278,6 @@ export class DatabaseStorage implements IStorage {
     await db.update(subscriptions).set({ status: "cancelled", updatedAt: new Date() }).where(eq(subscriptions.userId, userId));
   }
 
-  async updateUserRole(userId: string, role: string): Promise<void> {
-    await db.update(users).set({ role }).where(eq(users.id, userId));
-  }
 
   async deleteUserAdmin(userId: string): Promise<void> {
     await db.delete(aiUsage).where(eq(aiUsage.userId, userId));
@@ -455,11 +458,6 @@ export class InMemoryStorage implements IStorage {
     }
   }
 
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const user: User = { id: randomUUID(), role: "user", ...insertUser };
-    this.users.set(user.id, user);
-    return user;
-  }
 
   async getProjects(userId: string): Promise<Project[]> {
     return Array.from(this.projects.values()).filter(p => p.userId === userId);
@@ -629,10 +627,6 @@ export class InMemoryStorage implements IStorage {
     if (sub) this.subscriptions.set(userId, { ...sub, status: "cancelled", updatedAt: new Date() });
   }
 
-  async updateUserRole(userId: string, role: string): Promise<void> {
-    const user = this.users.get(userId);
-    if (user) this.users.set(userId, { ...user, role });
-  }
 
   async deleteUserAdmin(userId: string): Promise<void> {
     for (const key of [...this.aiUsageMap.keys()]) {
