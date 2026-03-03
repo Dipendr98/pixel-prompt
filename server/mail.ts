@@ -1,18 +1,27 @@
 import nodemailer from 'nodemailer';
 
-// Create a generic transporter
-// In production, configure SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS in your .env
+// ─── Gmail SMTP Setup using App Password ───────────────────────────────
+// 1. Go to https://myaccount.google.com/security
+// 2. Enable 2-Step Verification
+// 3. Go to https://myaccount.google.com/apppasswords
+// 4. Create an App Password (select "Mail" and "Other")
+// 5. Copy the 16-character password (e.g. abcd efgh ijkl mnop)
+// 6. Set SMTP_USER = your Gmail address, SMTP_PASS = the 16-char app password
+// ────────────────────────────────────────────────────────────────────────
+
 export const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.ethereal.email',
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
   port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: process.env.SMTP_SECURE === 'true',
+  secure: process.env.SMTP_SECURE === 'true', // true for 465, false for 587
   auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
+    user: process.env.SMTP_USER, // your Gmail address e.g. you@gmail.com
+    pass: process.env.SMTP_PASS, // 16-char Google App Password e.g. abcdefghijklmnop
   },
 });
 
-const defaultFrom = '"PixelPrompt" <support@pixel-prompt.app>';
+const defaultFrom = process.env.SMTP_USER
+  ? `"PixelPrompt" <${process.env.SMTP_USER}>`
+  : '"PixelPrompt" <support@pixel-prompt.app>';
 
 export async function sendWelcomeEmail(to: string) {
   try {

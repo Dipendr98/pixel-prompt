@@ -1,5 +1,6 @@
 import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
+import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
@@ -61,6 +62,7 @@ export function setupAuth(app: Express) {
   app.use(passport.initialize());
   app.use(passport.session());
 
+  // ─── Local Strategy (Email + Password) ─────────────────────────────────
   passport.use(
     new LocalStrategy(
       { usernameField: "email", passwordField: "password" },
@@ -78,6 +80,59 @@ export function setupAuth(app: Express) {
       },
     ),
   );
+
+  // ─── Google OAuth Strategy (Sign in with Google) ───────────────────────
+  if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+    passport.use(
+      new GoogleStrategy(
+        {
+          clientID: process.env.GOOGLE_CLIENT_ID,
+          clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+          callbackURL: process.env.GOOGLE_CALLBACK_URL || "/api/auth/google/callback",
+          scope: ["profile", "email"],
+        },
+        async (_accessToken: string, _refreshToken: string, profile: any, done: any) => {
+          try {
+            const email = profile.emails?.[0]?.value;
+            if (!email) return done(null, false, { message: "No email found in Google profile" });
+
+            // Check if user already exists
+            let user = await storage.getUserByEmail(email);
+
+            if (!user) {
+              // Auto-register new user with a random password (they use Google to login)
+              const randomPassword = await hashPassword(randomBytes(32).toString("hex"));
+              user = await storage.createUser({ email, password: randomPassword });
+
+              // Send welcome email to new Google sign-up user
+              await sendWelcomeEmail(email);
+              console.log(`[Auth] New user registered via Google: ${email}`);
+            }
+
+            const { password: _, ...userWithoutPassword } = user;
+            return done(null, userWithoutPassword);
+          } catch (err) {
+            return done(err);
+          }
+        },
+      ),
+    );
+
+    // Google OAuth routes
+    app.get("/api/auth/google", passport.authenticate("google", { scope: ["profile", "email"] }));
+
+    app.get("/api/auth/google/callback",
+      passport.authenticate("google", { failureRedirect: "/auth/login?error=google_failed" }),
+      (_req, res) => {
+        // Successful Google login - redirect to dashboard
+        res.redirect("/dashboard");
+      },
+    );
+
+    console.log("[Auth] Google OAuth strategy enabled");
+  } else {
+    console.log("[Auth] Google OAuth not configured (set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env)");
+  }
 
   passport.serializeUser((user, done) => done(null, user.id));
   passport.deserializeUser(async (id: string, done) => {
