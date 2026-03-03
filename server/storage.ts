@@ -21,6 +21,7 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   updateUserResetToken(userId: string, token: string | null, expires: Date | null): Promise<void>;
   updateUserPassword(userId: string, hashedPassword: string): Promise<void>;
+  updateUserRole(userId: string, role: string): Promise<void>;
 
   getProjects(userId: string): Promise<Project[]>;
   getProject(id: string, userId: string): Promise<Project | undefined>;
@@ -98,6 +99,10 @@ export class DatabaseStorage implements IStorage {
 
   async updateUserPassword(userId: string, hashedPassword: string): Promise<void> {
     await db.update(users).set({ password: hashedPassword }).where(eq(users.id, userId));
+  }
+
+  async updateUserRole(userId: string, role: string): Promise<void> {
+    await db.update(users).set({ role }).where(eq(users.id, userId));
   }
 
   async getProjects(userId: string): Promise<Project[]> {
@@ -440,6 +445,13 @@ export class InMemoryStorage implements IStorage {
     const user = this.users.get(userId);
     if (user) {
       user.password = hashedPassword;
+    }
+  }
+
+  async updateUserRole(userId: string, role: string): Promise<void> {
+    const user = this.users.get(userId);
+    if (user) {
+      user.role = role;
     }
   }
 

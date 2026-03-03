@@ -16,6 +16,24 @@ export async function registerRoutes(
 ): Promise<Server> {
   setupAuth(app);
 
+  // --- Healthcheck endpoint for Railway ---
+  app.get("/api/health", (_req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
+  // --- DEV ONLY: Promote current user to admin ---
+  // POST http://localhost:5000/api/make-admin while logged in
+  // ⚠️ REMOVE THIS ROUTE BEFORE DEPLOYING TO PRODUCTION!
+  app.post("/api/make-admin", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      await storage.updateUserRole(userId, "admin");
+      res.json({ ok: true, message: "You are now an admin! Refresh the page." });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // --- File Upload ---
   const uploadsDir = path.resolve(process.cwd(), "uploads");
   if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
