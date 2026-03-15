@@ -57,7 +57,7 @@ export type ProgressEvent =
 
 export type ProgressCallback = (event: ProgressEvent) => void;
 
-type ValidBlock = {
+export type ValidBlock = {
   id: string;
   type: string;
   props?: Record<string, unknown>;
@@ -227,10 +227,10 @@ export async function orchestrate(
     planTask.model = model;
 
     // Extract JSON object from response
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("Planner response contained no JSON object");
+    const jsonStr = extractJSON(raw, "{");
+    if (!jsonStr) throw new Error("Planner response contained no JSON object");
 
-    plan = JSON.parse(jsonMatch[0]) as PlanResult;
+    plan = JSON.parse(jsonStr) as PlanResult;
 
     // Validate and sanitize plan
     if (!plan.blocks || !Array.isArray(plan.blocks)) {
@@ -311,10 +311,10 @@ Generate the complete blocks JSON array. Include exactly these block types in th
     codeTask.providerName = providerName;
     codeTask.model = model;
 
-    const jsonMatch = raw.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) throw new Error("Coder response contained no JSON array");
+    const jsonStr = extractJSON(raw, "[");
+    if (!jsonStr) throw new Error("Coder response contained no JSON array");
 
-    const parsed = JSON.parse(jsonMatch[0]) as unknown[];
+    const parsed = JSON.parse(jsonStr) as unknown[];
     rawBlocks = parsed.filter(
       (b): b is ValidBlock =>
         b !== null &&
@@ -399,9 +399,9 @@ Review and fix the blocks following the checklist. Return the corrected JSON arr
     reviewTask.providerName = providerName;
     reviewTask.model = model;
 
-    const jsonMatch = raw.match(/\[[\s\S]*\]/);
-    if (jsonMatch) {
-      const reviewed = JSON.parse(jsonMatch[0]) as unknown[];
+    const jsonStr2 = extractJSON(raw, "[");
+    if (jsonStr2) {
+      const reviewed = JSON.parse(jsonStr2) as unknown[];
       const validReviewed = reviewed.filter(
         (b): b is ValidBlock =>
           b !== null &&
@@ -452,6 +452,34 @@ Review and fix the blocks following the checklist. Return the corrected JSON arr
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Extract first balanced JSON object or array from a string.
+ * Handles nested braces/brackets correctly, unlike greedy regex.
+ */
+function extractJSON(text: string, startChar: "{" | "["): string | null {
+  const endChar = startChar === "{" ? "}" : "]";
+  const start = text.indexOf(startChar);
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) { escape = false; continue; }
+    if (ch === "\\") { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === startChar) depth++;
+    else if (ch === endChar) {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
+}
 
 function buildFallbackPlan(prompt: string): PlanResult {
   const lower = prompt.toLowerCase();

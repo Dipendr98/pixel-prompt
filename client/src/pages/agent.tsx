@@ -257,10 +257,16 @@ export default function AgentPage() {
   });
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    const viewport = scrollRef.current?.querySelector("[data-radix-scroll-area-viewport]");
+    if (viewport) {
+      viewport.scrollTop = viewport.scrollHeight;
     }
   }, [messages]);
+
+  // Abort streaming on unmount
+  useEffect(() => {
+    return () => { abortRef.current?.abort(); };
+  }, []);
 
   const handleApplyBlocks = useCallback(
     async (blocks: ComponentBlock[]) => {
@@ -318,6 +324,7 @@ export default function AgentPage() {
         headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" },
         body: JSON.stringify({ prompt, projectId }),
         signal: abortRef.current.signal,
+        credentials: "include",
       });
 
       if (!response.ok) {
@@ -331,8 +338,11 @@ export default function AgentPage() {
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
+        if (done) {
+          buf += decoder.decode();
+        } else {
+          buf += decoder.decode(value, { stream: true });
+        }
         const lines = buf.split("\n");
         buf = lines.pop() ?? "";
 
@@ -401,6 +411,7 @@ export default function AgentPage() {
               break;
           }
         }
+        if (done) break;
       }
     } catch (err: any) {
       if (err.name !== "AbortError") {

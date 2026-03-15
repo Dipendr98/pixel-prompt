@@ -124,10 +124,17 @@ export function AiPanel({ onApplyBlocks, projectId }: AiPanelProps) {
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    // ScrollArea forwards ref to Root — the actual scrollable element is the Viewport child
+    const viewport = scrollRef.current?.querySelector("[data-radix-scroll-area-viewport]");
+    if (viewport) {
+      viewport.scrollTop = viewport.scrollHeight;
     }
   }, [messages]);
+
+  // Abort streaming on unmount
+  useEffect(() => {
+    return () => { abortRef.current?.abort(); };
+  }, []);
 
   const handleSend = useCallback(async () => {
     const prompt = input.trim();
@@ -169,6 +176,7 @@ export function AiPanel({ onApplyBlocks, projectId }: AiPanelProps) {
         },
         body: JSON.stringify({ prompt, projectId }),
         signal: abortRef.current.signal,
+        credentials: "include",
       });
 
       if (!response.ok) {
@@ -184,9 +192,12 @@ export function AiPanel({ onApplyBlocks, projectId }: AiPanelProps) {
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
+        if (done) {
+          // Process any remaining buffer content after stream ends
+          buffer += decoder.decode();
+        } else {
+          buffer += decoder.decode(value, { stream: true });
+        }
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
 
@@ -263,6 +274,7 @@ export function AiPanel({ onApplyBlocks, projectId }: AiPanelProps) {
               break;
           }
         }
+        if (done) break;
       }
     } catch (err: any) {
       if (err.name === "AbortError") {
