@@ -529,6 +529,9 @@ export default function Dashboard() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(`/agent/${project.id}`); }}>
+                          <Sparkles className="w-4 h-4 mr-2" /> Open in AI Agent
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setRenameId(project.id); setRenameName(project.name); }}>
                           <Pencil className="w-4 h-4 mr-2" /> Rename
                         </DropdownMenuItem>

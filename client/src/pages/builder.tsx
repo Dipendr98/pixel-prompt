@@ -795,6 +795,12 @@ export default function Builder() {
               <Send className="w-4 h-4 mr-1" />
               Submit
             </Button>
+            <Link href={`/agent/${projectId}`}>
+              <Button variant="default" size="sm" className="gap-1.5 bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-700 hover:to-blue-700 border-0" title="Open AI Agent (multi-model pipeline)">
+                <Sparkles className="w-3.5 h-3.5" />
+                AI Agent
+              </Button>
+            </Link>
           </div>
         </header>
 
