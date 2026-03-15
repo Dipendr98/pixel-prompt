@@ -18,6 +18,7 @@ import Support from "@/pages/support";
 import Contact from "@/pages/contact";
 import AdminCrm from "@/pages/admin-crm";
 import NotFound from "@/pages/not-found";
+import AgentPage from "@/pages/agent";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
@@ -87,6 +88,13 @@ function Router() {
       </Route>
       <Route path="/support">
         <ProtectedRoute component={Support} />
+      </Route>
+      {/* AI Agent — standalone full-screen builder */}
+      <Route path="/agent">
+        <ProtectedRoute component={AgentPage} />
+      </Route>
+      <Route path="/agent/:projectId">
+        <ProtectedRoute component={AgentPage} />
       </Route>
       <Route component={NotFound} />
     </Switch>
