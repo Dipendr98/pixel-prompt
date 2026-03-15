@@ -5,12 +5,45 @@ import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
 import type { User } from "@shared/schema";
-import type { Express, Request } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import createMemoryStore from "memorystore";
 import pg from "pg";
 import { sendWelcomeEmail, sendPasswordResetEmail } from "./mail";
+
+// ─── Simple in-memory rate limiter ─────────────────────────────────────────
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
+function rateLimit(maxRequests: number, windowMs: number) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const key = req.ip || req.socket.remoteAddress || "unknown";
+    const now = Date.now();
+    const entry = rateLimitMap.get(key);
+
+    if (!entry || now > entry.resetAt) {
+      rateLimitMap.set(key, { count: 1, resetAt: now + windowMs });
+      return next();
+    }
+
+    if (entry.count >= maxRequests) {
+      const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
+      res.setHeader("Retry-After", String(retryAfter));
+      return res.status(429).json({ message: "Too many requests. Please try again later." });
+    }
+
+    entry.count++;
+    next();
+  };
+}
+
+// Clean up stale rate limit entries every 10 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of rateLimitMap) {
+    if (now > entry.resetAt) rateLimitMap.delete(key);
+  }
+}, 10 * 60 * 1000);
 
 const scryptAsync = promisify(scrypt);
 
@@ -146,7 +179,8 @@ export function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/auth/signup", async (req, res) => {
+  // Rate limit: 5 signup attempts per 15 min per IP
+  app.post("/api/auth/signup", rateLimit(5, 15 * 60 * 1000), async (req, res) => {
     try {
       const { email, password } = req.body;
       if (!email || !password) return res.status(400).json({ message: "Email and password required" });
@@ -171,7 +205,8 @@ export function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/auth/forgot-password", async (req, res) => {
+  // Rate limit: 3 forgot-password per 15 min per IP
+  app.post("/api/auth/forgot-password", rateLimit(3, 15 * 60 * 1000), async (req, res) => {
     try {
       const { email } = req.body;
       if (!email) return res.status(400).json({ message: "Email required" });
@@ -193,7 +228,8 @@ export function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/auth/reset-password", async (req, res) => {
+  // Rate limit: 5 reset-password per 15 min per IP
+  app.post("/api/auth/reset-password", rateLimit(5, 15 * 60 * 1000), async (req, res) => {
     try {
       const { token, password } = req.body;
       if (!token || !password) return res.status(400).json({ message: "Token and password required" });
@@ -214,7 +250,8 @@ export function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/auth/login", (req, res, next) => {
+  // Rate limit: 10 login attempts per 15 min per IP
+  app.post("/api/auth/login", rateLimit(10, 15 * 60 * 1000), (req, res, next) => {
     passport.authenticate("local", (err: any, user: any, info: any) => {
       if (err) return next(err);
       if (!user) return res.status(401).json({ message: info?.message || "Login failed" });

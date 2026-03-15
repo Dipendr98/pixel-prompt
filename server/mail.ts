@@ -52,6 +52,9 @@ async function sendEmail(to: string, subject: string, html: string) {
 
 export async function sendWelcomeEmail(to: string) {
   try {
+    const appUrl = process.env.APP_URL || process.env.REPLIT_DEV_DOMAIN
+      ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+      : "https://pixel-prompt.app";
     await sendEmail(to, "Welcome to PixelPrompt! 🚀", `
       <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
         <h2>Welcome to PixelPrompt!</h2>
@@ -59,7 +62,7 @@ export async function sendWelcomeEmail(to: string) {
         <p>Thank you for signing up. We're excited to have you on board!</p>
         <p>With PixelPrompt, you can build stunning websites powered by AI in seconds.</p>
         <br/>
-        <a href="https://pixel-prompt.app" style="background: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Go to Dashboard</a>
+        <a href="${appUrl}/dashboard" style="background: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Go to Dashboard</a>
       </div>
     `);
   } catch (error) {
@@ -69,7 +72,10 @@ export async function sendWelcomeEmail(to: string) {
 
 export async function sendPasswordResetEmail(to: string, token: string) {
   try {
-    const resetUrl = `https://pixel-prompt.app/reset-password?token=${token}`;
+    const baseUrl = process.env.APP_URL || process.env.REPLIT_DEV_DOMAIN
+      ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+      : "https://pixel-prompt.app";
+    const resetUrl = `${baseUrl}/reset-password?token=${token}`;
     await sendEmail(to, "Reset your PixelPrompt Password", `
       <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
         <h2>Password Reset Request</h2>
@@ -95,7 +101,7 @@ export async function sendPaymentSuccessEmail(to: string, amountBaseUnit: number
         <p>Amount Paid: <strong>₹${amount}</strong></p>
         <p>You now have unlimited AI generations and full export capabilities!</p>
         <br/>
-        <a href="https://pixel-prompt.app" style="background: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Start Building</a>
+        <a href="${process.env.APP_URL || "https://pixel-prompt.app"}/dashboard" style="background: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Start Building</a>
       </div>
     `);
   } catch (error) {

@@ -23,38 +23,52 @@ export async function registerRoutes(
   });
 
   // --- DEV ONLY: Promote current user to admin ---
-  // POST http://localhost:5000/api/make-admin while logged in
-  app.post("/api/make-admin", requireAuth, async (req, res) => {
-    try {
-      const userId = req.user!.id;
-      await storage.updateUserRole(userId, "admin");
-      res.json({ ok: true, message: "You are now an admin! Refresh the page." });
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
-  });
+  // Only available in development to prevent privilege escalation in production
+  if (process.env.NODE_ENV !== "production") {
+    app.post("/api/make-admin", requireAuth, async (req, res) => {
+      try {
+        const userId = req.user!.id;
+        await storage.updateUserRole(userId, "admin");
+        res.json({ ok: true, message: "You are now an admin! Refresh the page." });
+      } catch (err: any) {
+        res.status(500).json({ message: err.message });
+      }
+    });
 
-  // --- DEV ONLY: Promote current user via GET (Easier bypass for console security) ---
-  app.get("/api/make-admin-easy", requireAuth, async (req, res) => {
-    try {
-      const userId = req.user!.id;
-      await storage.updateUserRole(userId, "admin");
-      res.send(`<h1>Success! You are now an Admin.</h1><p>Go back to <a href="/admin/submissions">Admin Submissions</a></p>`);
-    } catch (err: any) {
-      res.status(500).send("Error: " + err.message);
-    }
-  });
+    app.get("/api/make-admin-easy", requireAuth, async (req, res) => {
+      try {
+        const userId = req.user!.id;
+        await storage.updateUserRole(userId, "admin");
+        res.send(`<h1>Success! You are now an Admin.</h1><p>Go back to <a href="/admin/submissions">Admin Submissions</a></p>`);
+      } catch (err: any) {
+        res.status(500).send("Error: " + err.message);
+      }
+    });
+  }
 
   // --- File Upload ---
   const uploadsDir = path.resolve(process.cwd(), "uploads");
   if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
   app.use("/uploads", (await import("express")).default.static(uploadsDir));
 
+  const ALLOWED_UPLOAD_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico"]);
+  const MAX_UPLOAD_SIZE = 5 * 1024 * 1024; // 5 MB
+
   app.post("/api/upload", requireAuth, async (req, res) => {
     try {
       const chunks: Buffer[] = [];
-      req.on("data", (chunk: Buffer) => chunks.push(chunk));
+      let totalSize = 0;
+      req.on("data", (chunk: Buffer) => {
+        totalSize += chunk.length;
+        if (totalSize > MAX_UPLOAD_SIZE) {
+          res.status(413).json({ message: "File too large (max 5 MB)" });
+          req.destroy();
+          return;
+        }
+        chunks.push(chunk);
+      });
       req.on("end", () => {
+        if (res.headersSent) return;
         const buffer = Buffer.concat(chunks);
         const contentType = req.headers["content-type"] || "";
         const boundary = contentType.split("boundary=")[1];
@@ -66,7 +80,11 @@ export async function registerRoutes(
           const headers = part.substring(0, headerEnd);
           const filenameMatch = headers.match(/filename="([^"]+)"/);
           if (!filenameMatch) continue;
-          const ext = path.extname(filenameMatch[1]) || ".png";
+          const ext = path.extname(filenameMatch[1]).toLowerCase() || ".png";
+          if (!ALLOWED_UPLOAD_EXTS.has(ext)) {
+            res.status(400).json({ message: `File type ${ext} not allowed. Use: ${[...ALLOWED_UPLOAD_EXTS].join(", ")}` });
+            return;
+          }
           const fname = nanoid(12) + ext;
           const body = part.substring(headerEnd + 4);
           const trimmed = body.endsWith("\r\n") ? body.slice(0, -2) : body;
