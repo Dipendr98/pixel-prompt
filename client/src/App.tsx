@@ -19,6 +19,8 @@ import Contact from "@/pages/contact";
 import AdminCrm from "@/pages/admin-crm";
 import NotFound from "@/pages/not-found";
 import AgentPage from "@/pages/agent";
+import ForgotPassword from "@/pages/forgot-password";
+import ResetPassword from "@/pages/reset-password";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
@@ -68,6 +70,10 @@ function Router() {
       <Route path="/signup">
         <GuestRoute component={AuthSignup} />
       </Route>
+      <Route path="/forgot-password">
+        <GuestRoute component={ForgotPassword} />
+      </Route>
+      <Route path="/reset-password" component={ResetPassword} />
       <Route path="/dashboard">
         <ProtectedRoute component={Dashboard} />
       </Route>
