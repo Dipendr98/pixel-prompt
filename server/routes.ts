@@ -9,7 +9,7 @@ import type { ProjectData, PageData } from "@shared/schema";
 import path from "path";
 import fs from "fs";
 import { sendPaymentSuccessEmail, sendQueryNotificationToAdmin, sendQueryResponseToUser } from "./mail";
-import { orchestrate, type ProgressEvent } from "./ai/orchestrator.js";
+import { orchestrate, type ProgressEvent as OrchestratorEvent } from "./ai/orchestrator.js";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -134,13 +134,15 @@ export async function registerRoutes(
     try {
       const userId = req.user!.id;
       const { prompt } = req.body;
-      if (!prompt) return res.status(400).json({ message: "Prompt required" });
+      if (!prompt || typeof prompt !== "string") {
+        return res.status(400).json({ message: "Prompt required (must be a string)" });
+      }
 
       const sub = await storage.getSubscription(userId);
       const isPro = sub?.status === "active";
+      const today = new Date().toISOString().split("T")[0];
 
       if (!isPro) {
-        const today = new Date().toISOString().split("T")[0];
         const usage = await storage.getAiUsage(userId, today);
         if (usage >= 3) {
           return res.status(429).json({
@@ -148,9 +150,6 @@ export async function registerRoutes(
           });
         }
       }
-
-      const today = new Date().toISOString().split("T")[0];
-      await storage.incrementAiUsage(userId, today);
 
       // Detect if client wants streaming (NDJSON) or classic JSON
       const wantsStream = req.headers["accept"] === "application/x-ndjson";
@@ -161,15 +160,18 @@ export async function registerRoutes(
         res.setHeader("Transfer-Encoding", "chunked");
         res.setHeader("Cache-Control", "no-cache");
         res.setHeader("X-Accel-Buffering", "no"); // Nginx: disable buffering
+        res.flushHeaders(); // send headers immediately for real-time streaming
 
-        const writeEvent = (event: ProgressEvent) => {
+        const writeEvent = (event: OrchestratorEvent) => {
           if (!res.writableEnded) {
-            res.write(JSON.stringify({ type: event.type, ...event }) + "\n");
+            res.write(JSON.stringify(event) + "\n");
           }
         };
 
         try {
           const result = await orchestrate(prompt, writeEvent);
+          // Only deduct usage credit after successful generation
+          await storage.incrementAiUsage(userId, today);
           if (!res.writableEnded) {
             res.write(
               JSON.stringify({
@@ -191,6 +193,7 @@ export async function registerRoutes(
       } else {
         // ── Classic mode: collect all progress, return final JSON ─────────
         const result = await orchestrate(prompt);
+        await storage.incrementAiUsage(userId, today);
         res.json({ message: result.message, blocks: result.blocks, plan: result.plan });
       }
     } catch (err: any) {

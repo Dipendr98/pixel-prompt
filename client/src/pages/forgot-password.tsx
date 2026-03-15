@@ -7,6 +7,19 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Layers, ArrowLeft, Mail, CheckCircle2 } from "lucide-react";
 
+function parseApiError(err: any): string {
+  const msg = err?.message || "";
+  // apiRequest throws "400: {\"message\":\"...\"}" — extract the inner message
+  const jsonStart = msg.indexOf("{");
+  if (jsonStart >= 0) {
+    try {
+      const parsed = JSON.parse(msg.slice(jsonStart));
+      return parsed.message || msg;
+    } catch { /* fall through */ }
+  }
+  return msg || "Something went wrong";
+}
+
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
@@ -18,14 +31,10 @@ export default function ForgotPassword() {
     setError("");
     setLoading(true);
     try {
-      const res = await apiRequest("POST", "/api/auth/forgot-password", { email });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.message || "Failed to send reset email");
-      }
+      await apiRequest("POST", "/api/auth/forgot-password", { email });
       setSent(true);
     } catch (err: any) {
-      setError(err.message || "Something went wrong");
+      setError(parseApiError(err));
     } finally {
       setLoading(false);
     }

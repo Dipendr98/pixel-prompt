@@ -7,6 +7,18 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Layers, Eye, EyeOff, CheckCircle2, ArrowRight, XCircle } from "lucide-react";
 
+function parseApiError(err: any): string {
+  const msg = err?.message || "";
+  const jsonStart = msg.indexOf("{");
+  if (jsonStart >= 0) {
+    try {
+      const parsed = JSON.parse(msg.slice(jsonStart));
+      return parsed.message || msg;
+    } catch { /* fall through */ }
+  }
+  return msg || "Something went wrong";
+}
+
 export default function ResetPassword() {
   const [location] = useLocation();
   const [token, setToken] = useState("");
@@ -43,15 +55,10 @@ export default function ResetPassword() {
 
     setLoading(true);
     try {
-      const res = await apiRequest("POST", "/api/auth/reset-password", {
-        token,
-        password,
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Failed to reset password");
+      await apiRequest("POST", "/api/auth/reset-password", { token, password });
       setDone(true);
     } catch (err: any) {
-      setError(err.message || "Something went wrong");
+      setError(parseApiError(err));
     } finally {
       setLoading(false);
     }

@@ -98,15 +98,30 @@ export async function callProvider(
     stream: false,
   };
 
-  const response = await fetch(cfg.baseUrl, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  // 60s timeout to prevent indefinite hangs on provider failures
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60_000);
+
+  let response: Response;
+  try {
+    response = await fetch(cfg.baseUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (err: any) {
+    clearTimeout(timeout);
+    if (err.name === "AbortError") {
+      throw new Error(`${cfg.displayName} (${model}) timed out after 60s`);
+    }
+    throw err;
+  }
+  clearTimeout(timeout);
 
   if (!response.ok) {
     const errText = await response.text().catch(() => "");
