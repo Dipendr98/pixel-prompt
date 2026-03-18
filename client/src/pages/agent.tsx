@@ -8,7 +8,7 @@
  * Pipeline: Planner (Groq) → Coder (NVIDIA NIM) → Reviewer (GitHub Models)
  */
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Link, useParams } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -29,9 +29,11 @@ import {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+type PhaseName = "discover" | "plan" | "code" | "review";
+
 interface AgentTask {
   id: string;
-  phase: "plan" | "code" | "review";
+  phase: PhaseName;
   description: string;
   status: "pending" | "running" | "done" | "failed";
   providerName?: string;
@@ -62,11 +64,22 @@ interface Message {
 
 // ── Phase metadata ────────────────────────────────────────────────────────────
 
-const PHASES = {
+const PHASES: Record<PhaseName, {
+  icon: React.ComponentType<{ className?: string }>; label: string; sublabel: string; color: string; bg: string; border: string; dot: string;
+}> = {
+  discover: {
+    icon: Brain,
+    label: "Discovery",
+    sublabel: "Analyzes audience, goal & narrative",
+    color: "text-orange-400",
+    bg: "bg-orange-500/10",
+    border: "border-orange-500/20",
+    dot: "bg-orange-400",
+  },
   plan: {
     icon: Brain,
     label: "Planner",
-    sublabel: "Groq · Llama 3.3 70B",
+    sublabel: "Architects the page structure",
     color: "text-violet-400",
     bg: "bg-violet-500/10",
     border: "border-violet-500/20",
@@ -75,7 +88,7 @@ const PHASES = {
   code: {
     icon: Zap,
     label: "Coder",
-    sublabel: "NVIDIA NIM · DeepSeek V3",
+    sublabel: "Generates specific, real content",
     color: "text-sky-400",
     bg: "bg-sky-500/10",
     border: "border-sky-500/20",
@@ -84,18 +97,18 @@ const PHASES = {
   review: {
     icon: Eye,
     label: "Reviewer",
-    sublabel: "GitHub · GPT-4o-mini",
+    sublabel: "Deep quality & coherence check",
     color: "text-emerald-400",
     bg: "bg-emerald-500/10",
     border: "border-emerald-500/20",
     dot: "bg-emerald-400",
   },
-} as const;
+};
 
 // ── Task badge ────────────────────────────────────────────────────────────────
 
 function TaskRow({ task }: { task: AgentTask }) {
-  const meta = PHASES[task.phase] ?? PHASES.plan;
+  const meta = PHASES[task.phase] ?? PHASES["plan"];
   const Icon = meta.icon;
 
   return (
@@ -117,9 +130,6 @@ function TaskRow({ task }: { task: AgentTask }) {
           <span className={`text-xs font-semibold ${meta.color}`}>{meta.label}</span>
           {task.providerName && (
             <span className="text-[10px] text-muted-foreground">{task.providerName}</span>
-          )}
-          {task.model && (
-            <Badge variant="outline" className="text-[9px] h-4 px-1">{task.model}</Badge>
           )}
         </div>
         <p className="text-xs text-muted-foreground mt-0.5 truncate">{task.description}</p>
@@ -357,7 +367,10 @@ export default function AgentPage() {
                 ...m,
                 logs: [...(m.logs ?? []), event.message],
                 progressPercent:
-                  event.phase === "plan" ? 15 : event.phase === "code" ? 40 : 75,
+                  event.phase === "discover" ? 5
+                  : event.phase === "plan" ? 22
+                  : event.phase === "code" ? 45
+                  : 78,
               }));
               break;
 
@@ -366,7 +379,10 @@ export default function AgentPage() {
                 ...m,
                 logs: [...(m.logs ?? []), event.message],
                 progressPercent:
-                  event.phase === "plan" ? 38 : event.phase === "code" ? 72 : 92,
+                  event.phase === "discover" ? 20
+                  : event.phase === "plan" ? 40
+                  : event.phase === "code" ? 74
+                  : 93,
               }));
               break;
 
@@ -575,8 +591,9 @@ export default function AgentPage() {
                 disabled={isGenerating}
               />
               {isGenerating ? (
-                <Button type="button" variant="destructive" size="icon" className="shrink-0 self-end" onClick={() => abortRef.current?.abort()}>
+                <Button type="button" variant="destructive" className="shrink-0 self-end gap-1.5 px-3" onClick={() => abortRef.current?.abort()}>
                   <XCircle className="w-4 h-4" />
+                  Stop
                 </Button>
               ) : (
                 <Button type="submit" size="icon" className="shrink-0 self-end" disabled={!input.trim()}>

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useAuth } from "@/lib/auth";
 import type { ComponentBlock } from "@shared/schema";
 import { Button } from "@/components/ui/button";
@@ -8,14 +8,17 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import {
   Send, Sparkles, Bot, UserIcon, Loader2,
-  CheckCircle2, XCircle, Clock, Zap, Eye, Brain,
+  CheckCircle2, XCircle, Clock, Zap, Eye, Brain, FileUp,
 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+type PhaseName = "discover" | "plan" | "code" | "review";
+
 interface AgentTask {
   id: string;
-  phase: "plan" | "code" | "review";
+  phase: PhaseName;
   description: string;
   status: "pending" | "running" | "done" | "failed";
   providerName?: string;
@@ -48,14 +51,24 @@ interface AiPanelProps {
 
 // ── Agent phase metadata ──────────────────────────────────────────────────────
 
-const PHASE_META = {
+const PHASE_META: Record<PhaseName, {
+  icon: React.ComponentType<{ className?: string }>; label: string; color: string; bg: string; border: string; provider: string;
+}> = {
+  discover: {
+    icon: Brain,
+    label: "Discovery",
+    color: "text-orange-400",
+    bg: "bg-orange-500/10",
+    border: "border-orange-500/20",
+    provider: "Intelligence Engine",
+  },
   plan: {
     icon: Brain,
     label: "Planner",
     color: "text-violet-400",
     bg: "bg-violet-500/10",
     border: "border-violet-500/20",
-    provider: "Groq · Llama 3.3 70B",
+    provider: "Analysis Engine",
   },
   code: {
     icon: Zap,
@@ -63,7 +76,7 @@ const PHASE_META = {
     color: "text-blue-400",
     bg: "bg-blue-500/10",
     border: "border-blue-500/20",
-    provider: "NVIDIA NIM · DeepSeek V3",
+    provider: "Generation Engine",
   },
   review: {
     icon: Eye,
@@ -71,12 +84,12 @@ const PHASE_META = {
     color: "text-emerald-400",
     bg: "bg-emerald-500/10",
     border: "border-emerald-500/20",
-    provider: "GitHub Models · GPT-4o-mini",
+    provider: "Validation Engine",
   },
-} as const;
+};
 
 function TaskBadge({ task }: { task: AgentTask }) {
-  const meta = PHASE_META[task.phase] ?? PHASE_META.plan;
+  const meta = PHASE_META[task.phase] ?? PHASE_META["plan"];
   const Icon = meta.icon;
 
   return (
@@ -105,23 +118,25 @@ function TaskBadge({ task }: { task: AgentTask }) {
 
 export function AiPanel({ onApplyBlocks, projectId }: AiPanelProps) {
   const { isPro } = useAuth();
+  const { toast } = useToast();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "welcome",
       role: "assistant",
       content:
-        "Hi! I'm your multi-agent AI assistant powered by Groq, NVIDIA NIM, and GitHub Models.\n\n" +
-        "I use a 3-agent pipeline:\n" +
-        "• 🧠 **Planner** (Groq Llama 3.3 70B) — analyzes your request\n" +
-        "• ⚡ **Coder** (NVIDIA DeepSeek V3) — generates the blocks\n" +
-        "• 🔍 **Reviewer** (GPT-4o-mini) — validates quality\n\n" +
-        "Describe what you want to build and watch all three agents work!",
+        "Hi! I'm your multi-agent AI assistant.\n\n" +
+        "Describe what you want to build, or upload your CV to auto-build a portfolio!",
     },
   ]);
   const [input, setInput] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const cvAbortRef = useRef<AbortController | null>(null);
+  const cvInputRef = useRef<HTMLInputElement>(null);
+
+  // Derived — true while a CV message is still streaming
+  const isCvParsing = messages.some(m => m.id.startsWith("cv-") && m.isStreaming);
 
   useEffect(() => {
     // ScrollArea forwards ref to Root — the actual scrollable element is the Viewport child
@@ -131,9 +146,12 @@ export function AiPanel({ onApplyBlocks, projectId }: AiPanelProps) {
     }
   }, [messages]);
 
-  // Abort streaming on unmount
+  // Abort any in-flight requests on unmount
   useEffect(() => {
-    return () => { abortRef.current?.abort(); };
+    return () => {
+      abortRef.current?.abort();
+      cvAbortRef.current?.abort();
+    };
   }, []);
 
   const handleSend = useCallback(async () => {
@@ -188,6 +206,7 @@ export function AiPanel({ onApplyBlocks, projectId }: AiPanelProps) {
       const decoder = new TextDecoder();
       let buffer = "";
       let logLines: string[] = [];
+      const MAX_LOG_LINES = 150;
       const phaseDone: Record<string, boolean> = {};
 
       while (true) {
@@ -213,11 +232,12 @@ export function AiPanel({ onApplyBlocks, projectId }: AiPanelProps) {
 
           switch (event.type) {
             case "phase_start":
+              if (logLines.length >= MAX_LOG_LINES) logLines = logLines.slice(-100);
               logLines.push(event.message);
               updateAgentMsg((m) => ({
                 ...m,
                 content: logLines.join("\n"),
-                progressPercent: event.phase === "plan" ? 10 : event.phase === "code" ? 40 : 75,
+                progressPercent: event.phase === "discover" ? 5 : event.phase === "plan" ? 20 : event.phase === "code" ? 45 : 80,
               }));
               break;
 
@@ -228,7 +248,7 @@ export function AiPanel({ onApplyBlocks, projectId }: AiPanelProps) {
                 ...m,
                 content: logLines.join("\n"),
                 progressPercent:
-                  event.phase === "plan" ? 35 : event.phase === "code" ? 70 : 90,
+                  event.phase === "discover" ? 18 : event.phase === "plan" ? 38 : event.phase === "code" ? 72 : 92,
               }));
               break;
 
@@ -248,6 +268,7 @@ export function AiPanel({ onApplyBlocks, projectId }: AiPanelProps) {
               break;
 
             case "log":
+              if (logLines.length >= MAX_LOG_LINES) logLines = logLines.slice(-100);
               logLines.push(event.message);
               updateAgentMsg((m) => ({ ...m, content: logLines.join("\n") }));
               break;
@@ -300,6 +321,57 @@ export function AiPanel({ onApplyBlocks, projectId }: AiPanelProps) {
   const handleCancel = () => {
     abortRef.current?.abort();
   };
+
+  const handleCvUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (cvInputRef.current) cvInputRef.current.value = "";
+
+    const cvMsgId = `cv-${Date.now()}`;
+    setMessages((prev) => [
+      ...prev,
+      { id: `uCV-${Date.now()}`, role: "user", content: `📎 Uploaded CV: ${file.name}` },
+      { id: cvMsgId, role: "agent", content: `📄 Parsing your CV: ${file.name}\nExtracting skills, projects, and experience...`, isStreaming: true, progressPercent: 30 },
+    ]);
+
+    cvAbortRef.current = new AbortController();
+    try {
+      const formData = new FormData();
+      formData.append("cv", file);
+      const res = await fetch("/api/ai/cv-parse", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+        signal: cvAbortRef.current.signal,
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: res.statusText }));
+        throw new Error(err.message || "CV parsing failed");
+      }
+
+      const data = await res.json();
+      setMessages((msgs) => msgs.map((m) => m.id === cvMsgId ? {
+        ...m,
+        content: `✅ CV parsed! Found ${data.skills?.length || 0} skills, ${data.projects?.length || 0} projects, ${data.experience?.length || 0} experience entries.\n\nApply these blocks to auto-populate your portfolio:`,
+        blocks: data.blocks,
+        isStreaming: false,
+        progressPercent: 100,
+        error: false,
+      } : m));
+      toast({ title: "CV parsed successfully!", description: `Extracted ${data.skills?.length || 0} skills and ${data.projects?.length || 0} projects` });
+    } catch (err: any) {
+      if (err.name === "AbortError") return;
+      setMessages((msgs) => msgs.map((m) => m.id === cvMsgId ? {
+        ...m,
+        content: `❌ CV parsing failed: ${err.message}\n\nTip: Make sure your CV is in .txt, .pdf, or .md format.`,
+        isStreaming: false,
+        error: true,
+      } : m));
+    } finally {
+      cvAbortRef.current = null;
+    }
+  }, [toast]);
 
   return (
     <div className="flex flex-col h-full">
@@ -401,12 +473,12 @@ export function AiPanel({ onApplyBlocks, projectId }: AiPanelProps) {
 
       {/* Agent pipeline indicator */}
       {isGenerating && (
-        <div className="px-3 py-2 border-t flex items-center gap-2 text-xs text-muted-foreground shrink-0">
-          {(["plan", "code", "review"] as const).map((phase, i) => {
+        <div className="px-3 py-2 border-t flex items-center gap-1.5 text-xs text-muted-foreground shrink-0 overflow-x-auto">
+          {(["discover", "plan", "code", "review"] as const).map((phase, i) => {
             const meta = PHASE_META[phase];
             const Icon = meta.icon;
             return (
-              <span key={phase} className="flex items-center gap-1">
+              <span key={phase} className="flex items-center gap-1 shrink-0">
                 {i > 0 && <span className="text-muted-foreground/40">→</span>}
                 <Icon className={`w-3 h-3 ${meta.color}`} />
                 <span className={meta.color}>{meta.label}</span>
@@ -442,13 +514,13 @@ export function AiPanel({ onApplyBlocks, projectId }: AiPanelProps) {
           {isGenerating ? (
             <Button
               type="button"
-              size="icon"
               variant="destructive"
-              className="shrink-0"
+              className="shrink-0 gap-1.5 px-3"
               onClick={handleCancel}
-              title="Cancel"
+              title="Stop Generation"
             >
               <XCircle className="w-4 h-4" />
+              <span className="hidden sm:inline">Stop</span>
             </Button>
           ) : (
             <Button
@@ -463,17 +535,36 @@ export function AiPanel({ onApplyBlocks, projectId }: AiPanelProps) {
           )}
         </form>
 
-        {/* Model info */}
-        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-          {Object.entries(PHASE_META).map(([, meta]) => {
-            const Icon = meta.icon;
-            return (
-              <span key={meta.label} className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                <Icon className={`w-2.5 h-2.5 ${meta.color}`} />
-                {meta.provider}
-              </span>
-            );
-          })}
+        {/* CV Upload + Model info */}
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-x-3 gap-y-1">
+            {Object.entries(PHASE_META).map(([, meta]) => {
+              const Icon = meta.icon;
+              return (
+                <span key={meta.label} className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                  <Icon className={`w-2.5 h-2.5 ${meta.color}`} />
+                  {meta.provider}
+                </span>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            disabled={isGenerating || isCvParsing}
+            onClick={() => cvInputRef.current?.click()}
+            className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-md hover:bg-muted disabled:opacity-50 shrink-0"
+            title="Upload CV to auto-build portfolio"
+          >
+            {isCvParsing ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileUp className="w-3 h-3" />}
+            Upload CV
+          </button>
+          <input
+            ref={cvInputRef}
+            type="file"
+            accept=".txt,.pdf,.md,.doc,.docx"
+            className="hidden"
+            onChange={handleCvUpload}
+          />
         </div>
       </div>
     </div>

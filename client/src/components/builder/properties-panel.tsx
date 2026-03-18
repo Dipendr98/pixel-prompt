@@ -16,7 +16,7 @@ interface PropertiesPanelProps {
 }
 
 // Image upload helper
-function ImageUploadField({ value, onChange, label, testId }: { value: string; onChange: (url: string) => void; label: string; testId: string }) {
+function ImageUploadField({ value, onChange, label, testId }: { value: string; onChange: (url: string) => void; label?: string; testId: string }) {
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -41,8 +41,8 @@ function ImageUploadField({ value, onChange, label, testId }: { value: string; o
   };
 
   return (
-    <div className="space-y-1.5">
-      <Label className="text-xs">{label}</Label>
+    <div className="space-y-1.5 w-full">
+      {label && <Label className="text-xs">{label}</Label>}
       <div className="flex gap-2">
         <Input value={value || ""} onChange={(e) => onChange(e.target.value)} placeholder="https://... or upload" className="flex-1 text-xs" data-testid={testId} />
         <Button variant="outline" size="icon" className="shrink-0 h-9 w-9" onClick={() => fileRef.current?.click()} disabled={uploading}>
@@ -184,7 +184,7 @@ export function PropertiesPanel({ block, onChange }: PropertiesPanelProps) {
 
       case "product-card":
         return (
-          <ArrayEditor label="Products" items={props.products || []} fields={[{ key: "name", label: "Name" }, { key: "price", label: "Price" }, { key: "description", label: "Description" }, { key: "image", label: "Image URL" }]} template={{ name: "New Product", price: "$0.00", description: "Description", image: "" }} onChange={(items) => updateProp("products", items)} testPrefix="product" />
+          <ArrayEditor label="Products" items={props.products || []} fields={[{ key: "name", label: "Name" }, { key: "price", label: "Price" }, { key: "description", label: "Description", type: "textarea" }, { key: "image", label: "Image", type: "image" }]} template={{ name: "New Product", price: "$0.00", description: "Description", image: "" }} onChange={(items) => updateProp("products", items)} testPrefix="product" />
         );
 
       case "pricing-table":
@@ -216,7 +216,9 @@ export function PropertiesPanel({ block, onChange }: PropertiesPanelProps) {
         return <ArrayEditor label="Testimonials" items={props.testimonials || []} fields={[{ key: "name", label: "Name" }, { key: "role", label: "Role" }, { key: "quote", label: "Quote" }]} template={{ name: "New Person", role: "Title", quote: "Great experience!" }} onChange={(items) => updateProp("testimonials", items)} testPrefix="testimonial" />;
 
       case "gallery":
-        return <Field label="Number of Images"><Input type="number" min="2" max="20" value={props.count || 8} onChange={(e) => updateProp("count", parseInt(e.target.value) || 8)} /></Field>;
+        return (
+          <ArrayEditor label="Gallery Images" items={props.images?.length ? props.images : Array.from({ length: props.count || 8 }).map(() => ({ src: "" }))} fields={[{ key: "src", label: "Image", type: "image" }]} template={{ src: "" }} onChange={(items) => updateProp("images", items)} testPrefix="gallery" />
+        );
 
       case "video":
         return (
@@ -238,7 +240,7 @@ export function PropertiesPanel({ block, onChange }: PropertiesPanelProps) {
         return <ArrayEditor label="Statistics" items={props.stats || []} fields={[{ key: "value", label: "Value" }, { key: "label", label: "Label" }]} template={{ value: "100+", label: "New Stat" }} onChange={(items) => updateProp("stats", items)} testPrefix="stat" />;
 
       case "team":
-        return <ArrayEditor label="Team Members" items={props.members || []} fields={[{ key: "name", label: "Name" }, { key: "role", label: "Role" }, { key: "bio", label: "Bio" }]} template={{ name: "New Member", role: "Role", bio: "Bio" }} onChange={(items) => updateProp("members", items)} testPrefix="team" />;
+        return <ArrayEditor label="Team Members" items={props.members || []} fields={[{ key: "name", label: "Name" }, { key: "role", label: "Role" }, { key: "bio", label: "Bio", type: "textarea" }, { key: "image", label: "Image", type: "image" }]} template={{ name: "New Member", role: "Role", bio: "Bio", image: "" }} onChange={(items) => updateProp("members", items)} testPrefix="team" />;
 
       case "social-links":
         return <ArrayEditor label="Social Links" items={props.links || []} fields={[{ key: "platform", label: "Platform" }, { key: "url", label: "URL" }]} template={{ platform: "Twitter", url: "#" }} onChange={(items) => updateProp("links", items)} testPrefix="social" />;
@@ -410,6 +412,71 @@ export function PropertiesPanel({ block, onChange }: PropertiesPanelProps) {
           </>
         );
 
+      case "project-card":
+        return (
+          <>
+            <Field label="Section Title"><Input value={props.title || ""} onChange={(e) => updateProp("title", e.target.value)} placeholder="Featured Projects" /></Field>
+            <ArrayEditor
+              label="Projects" testPrefix="project"
+              items={props.projects || []}
+              template={{ title: "New Project", description: "Project description", image: "", techStack: ["React", "Node.js"], liveUrl: "#", repoUrl: "#" }}
+              fields={[
+                { key: "title", label: "Title" },
+                { key: "description", label: "Description", type: "textarea" },
+                { key: "image", label: "Image", type: "image" },
+                { key: "techStack", label: "Tech Stack (comma-separated)", type: "comma-array", placeholder: "React, Node.js, PostgreSQL" },
+                { key: "liveUrl", label: "Live URL", placeholder: "https://myproject.com" },
+                { key: "repoUrl", label: "Repo URL", placeholder: "https://github.com/..." },
+              ]}
+              onChange={(v) => updateProp("projects", v)}
+            />
+          </>
+        );
+
+      case "experience-timeline":
+        return (
+          <>
+            <Field label="Section Title"><Input value={props.title || ""} onChange={(e) => updateProp("title", e.target.value)} placeholder="Work Experience" /></Field>
+            <ArrayEditor
+              label="Timeline Items" testPrefix="experience"
+              items={props.items || []}
+              template={{ title: "Job Title", company: "Company Name", period: "Jan 2023 – Present", description: "Describe your role and key achievements here." }}
+              fields={[
+                { key: "title", label: "Job Title" },
+                { key: "company", label: "Company" },
+                { key: "period", label: "Period", placeholder: "Jan 2022 – Present" },
+                { key: "description", label: "Description", type: "textarea" },
+              ]}
+              onChange={(v) => updateProp("items", v)}
+            />
+          </>
+        );
+
+      case "skills-grid":
+        return (
+          <>
+            <Field label="Section Title"><Input value={props.title || ""} onChange={(e) => updateProp("title", e.target.value)} placeholder="Skills & Technologies" /></Field>
+            <ArrayEditor
+              label="Skills" testPrefix="skill"
+              items={props.skills || []}
+              template={{ name: "New Skill", level: 75, icon: "code" }}
+              fields={[
+                { key: "name", label: "Skill Name" },
+                { key: "level", label: "Proficiency", type: "range", min: 0, max: 100 },
+                { key: "icon", label: "Icon Type", type: "select", options: [
+                  { value: "code", label: "Code (Languages/Frameworks)" },
+                  { value: "design", label: "Design (UI/UX tools)" },
+                  { value: "cloud", label: "Cloud (AWS/GCP/Azure)" },
+                  { value: "data", label: "Data (DB/ML/Analytics)" },
+                  { value: "mobile", label: "Mobile (iOS/Android)" },
+                  { value: "devops", label: "DevOps (CI/CD/Docker)" },
+                ]},
+              ]}
+              onChange={(v) => updateProp("skills", v)}
+            />
+          </>
+        );
+
       default:
         return <p className="text-sm text-muted-foreground">No properties available for this block type.</p>;
     }
@@ -456,10 +523,20 @@ function AlignField({ value, onChange }: { value?: string; onChange: (v: string)
 function ArrayEditor({
   label, items, fields, template, onChange, testPrefix,
 }: {
-  label: string; items: any[]; fields: { key: string; label: string }[];
-  template: any; onChange: (items: any[]) => void; testPrefix: string;
+  label: string;
+  items: any[];
+  fields: {
+    key: string; label: string;
+    type?: "text" | "image" | "textarea" | "range" | "select" | "comma-array";
+    min?: number; max?: number;
+    placeholder?: string;
+    options?: { value: string; label: string }[];
+  }[];
+  template: any;
+  onChange: (items: any[]) => void;
+  testPrefix: string;
 }) {
-  const updateItem = (index: number, field: string, value: string) => {
+  const updateItem = (index: number, field: string, value: any) => {
     const arr = [...items]; arr[index] = { ...arr[index], [field]: value }; onChange(arr);
   };
   const addItem = () => onChange([...items, { ...template }]);
@@ -475,8 +552,30 @@ function ArrayEditor({
         <div key={i} className="border border-border rounded-md p-2 space-y-1.5">
           {fields.map((f) => (
             <div key={f.key}>
-              <Label className="text-[10px] text-muted-foreground">{f.label}</Label>
-              <Input value={item[f.key] || ""} onChange={(e) => updateItem(i, f.key, e.target.value)} className="h-7 text-xs" data-testid={`input-${testPrefix}-${i}-${f.key}`} />
+              <Label className="text-[10px] text-muted-foreground">
+                {f.label}{f.type === "range" ? `: ${item[f.key] ?? f.min ?? 0}%` : ""}
+              </Label>
+              {f.type === "image" ? (
+                <ImageUploadField value={item[f.key] || ""} onChange={(v) => updateItem(i, f.key, v)} testId={`input-${testPrefix}-${i}-${f.key}`} />
+              ) : f.type === "textarea" ? (
+                <Textarea value={item[f.key] || ""} onChange={(e) => updateItem(i, f.key, e.target.value)} className="min-h-[60px] text-xs resize-none" placeholder={f.placeholder} />
+              ) : f.type === "range" ? (
+                <input type="range" min={f.min ?? 0} max={f.max ?? 100} value={item[f.key] ?? 75}
+                  onChange={(e) => updateItem(i, f.key, parseInt(e.target.value))} className="w-full mt-1" />
+              ) : f.type === "select" && f.options ? (
+                <Select value={item[f.key] || f.options[0]?.value} onValueChange={(v) => updateItem(i, f.key, v)}>
+                  <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {f.options.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              ) : f.type === "comma-array" ? (
+                <Input value={(item[f.key] || []).join(", ")} placeholder={f.placeholder}
+                  onChange={(e) => updateItem(i, f.key, e.target.value.split(",").map((s: string) => s.trim()).filter(Boolean))}
+                  className="h-7 text-xs" data-testid={`input-${testPrefix}-${i}-${f.key}`} />
+              ) : (
+                <Input value={item[f.key] || ""} onChange={(e) => updateItem(i, f.key, e.target.value)} className="h-7 text-xs" placeholder={f.placeholder} data-testid={`input-${testPrefix}-${i}-${f.key}`} />
+              )}
             </div>
           ))}
           <Button variant="ghost" size="sm" className="text-destructive text-xs w-full" onClick={() => removeItem(i)} data-testid={`button-remove-${testPrefix}-${i}`}><Trash2 className="w-3 h-3 mr-1" /> Remove</Button>

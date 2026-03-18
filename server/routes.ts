@@ -9,7 +9,31 @@ import type { ProjectData, PageData } from "@shared/schema";
 import path from "path";
 import fs from "fs";
 import { sendPaymentSuccessEmail, sendQueryNotificationToAdmin, sendQueryResponseToUser } from "./mail";
-import { orchestrate, type ProgressEvent as OrchestratorEvent } from "./ai/orchestrator.js";
+import { orchestrate, parseCVText, buildPortfolioBlocksFromCV, type ProgressEvent as OrchestratorEvent } from "./ai/orchestrator.js";
+
+// ── Shared multipart helpers ──────────────────────────────────────────────────
+
+function readRawBody(req: import("http").IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("binary")));
+    req.on("error", reject);
+  });
+}
+
+function extractMultipartField(body: string, contentType: string, fieldName: string): string {
+  const boundary = contentType.split("boundary=")[1];
+  if (!boundary) return "";
+  for (const part of body.split("--" + boundary)) {
+    const headerEnd = part.indexOf("\r\n\r\n");
+    if (headerEnd === -1) continue;
+    if (!part.substring(0, headerEnd).includes(`name="${fieldName}"`)) continue;
+    const raw = part.substring(headerEnd + 4);
+    return raw.endsWith("\r\n") ? raw.slice(0, -2) : raw;
+  }
+  return "";
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -218,6 +242,24 @@ export async function registerRoutes(
       if (!res.headersSent) {
         res.status(500).json({ message: err.message });
       }
+    }
+  });
+
+  // ── CV Upload & Parse endpoint ──────────────────────────────────────────────
+  app.post("/api/ai/cv-parse", requireAuth, async (req, res) => {
+    try {
+      const body = await readRawBody(req);
+      const cvText = extractMultipartField(body, req.headers["content-type"] || "", "cv");
+
+      if (!cvText || cvText.trim().length < 50) {
+        return res.status(400).json({ message: "CV content is too short or unreadable. Please upload a plain text (.txt) or markdown (.md) file." });
+      }
+
+      const parsed = await parseCVText(cvText);
+      const blocks = buildPortfolioBlocksFromCV(parsed);
+      res.json({ ...parsed, blocks });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 

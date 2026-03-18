@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/depen/pixel_prompt/pixel-prompt/server/**)",
+      "Read(//c/Users/depen/**)"
+    ]
+  }
+}

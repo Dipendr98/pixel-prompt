@@ -24,19 +24,19 @@ interface ProviderConfig {
 const PROVIDER_CONFIGS: Record<string, ProviderConfig> = {
   groq: {
     name: "groq",
-    displayName: "Groq",
+    displayName: "Analysis Engine",
     baseUrl: "https://api.groq.com/openai/v1/chat/completions",
     getApiKey: () => process.env.GROQ_API_KEY || "",
   },
   nvidia: {
     name: "nvidia",
-    displayName: "NVIDIA NIM",
+    displayName: "Generation Engine",
     baseUrl: "https://integrate.api.nvidia.com/v1/chat/completions",
     getApiKey: () => process.env.NVIDIA_API_KEY || "",
   },
   github: {
     name: "github",
-    displayName: "GitHub Models",
+    displayName: "Validation Engine",
     baseUrl: "https://models.inference.ai.azure.com/chat/completions",
     getApiKey: () => process.env.GITHUB_TOKEN || "",
   },
@@ -98,9 +98,9 @@ export async function callProvider(
     stream: false,
   };
 
-  // 60s timeout to prevent indefinite hangs on provider failures
+  // 120s timeout to prevent indefinite hangs on provider failures
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60_000);
+  const timeout = setTimeout(() => controller.abort(), 120_000);
 
   let response: Response;
   try {
@@ -117,7 +117,7 @@ export async function callProvider(
   } catch (err: any) {
     clearTimeout(timeout);
     if (err.name === "AbortError") {
-      throw new Error(`${cfg.displayName} (${model}) timed out after 60s`);
+      throw new Error(`${cfg.displayName} (${model}) timed out after 120s`);
     }
     throw err;
   }

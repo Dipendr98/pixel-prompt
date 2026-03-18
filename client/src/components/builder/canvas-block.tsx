@@ -7,6 +7,8 @@ import {
   Quote, GalleryHorizontal, Video, HelpCircle, BarChart3, Users, Share2, Flag,
   Timer, Newspaper, Building2, Megaphone, ShoppingCart, ChevronDown, Check,
   Play, Globe, MapPin, Phone, Clock, BookOpen, List, CreditCard, CalendarDays, LogIn,
+  FolderKanban, GitBranch, Gauge, ExternalLink, Github, Code2, Palette, Cloud,
+  Database, Smartphone, Settings2, Briefcase,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
@@ -34,6 +36,7 @@ const iconMap: Record<string, any> = {
   countdown: Timer, newsletter: Newspaper, "logo-cloud": Building2, cta: Megaphone,
   "blog-post": BookOpen, "blog-list": List, cart: ShoppingCart, "checkout-form": CreditCard,
   map: MapPin, "booking-form": CalendarDays, "login-form": LogIn,
+  "project-card": FolderKanban, "experience-timeline": GitBranch, "skills-grid": Gauge,
 };
 
 interface CanvasBlockProps {
@@ -228,11 +231,12 @@ function renderBlockPreview(block: ComponentBlock) {
       );
 
     case "gallery":
+      const galleryItems = props.images?.length ? props.images : Array.from({ length: props.count || 8 }).map(() => ({ src: "" }));
       return wrapStyle(
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-          {Array.from({ length: props.count || 8 }).map((_, i) => (
-            <div key={i} className="aspect-square bg-muted rounded-md flex items-center justify-center">
-              <ImageIcon className="w-5 h-5 text-muted-foreground" />
+          {galleryItems.map((img: any, i: number) => (
+            <div key={i} className="aspect-square bg-muted rounded-md flex items-center justify-center overflow-hidden">
+              {img.src ? <img src={img.src} alt="Gallery item" className="w-full h-full object-cover" /> : <ImageIcon className="w-5 h-5 text-muted-foreground" />}
             </div>
           ))}
         </div>
@@ -295,8 +299,8 @@ function renderBlockPreview(block: ComponentBlock) {
             { name: "Jane Smith", role: "CTO", bio: "Tech innovator" },
           ]).map((m: any, i: number) => (
             <div key={i} className="text-center p-4">
-              <div className="w-14 h-14 rounded-full bg-primary/10 mx-auto mb-2 flex items-center justify-center">
-                <Users className="w-6 h-6 text-primary" />
+              <div className="w-14 h-14 rounded-full bg-primary/10 mx-auto mb-2 flex items-center justify-center overflow-hidden">
+                {m.image ? <img src={m.image} alt={m.name} className="w-full h-full object-cover" /> : <Users className="w-6 h-6 text-primary" />}
               </div>
               <p className="text-sm font-medium">{m.name}</p>
               <p className="text-xs text-primary">{m.role}</p>
@@ -559,6 +563,128 @@ function renderBlockPreview(block: ComponentBlock) {
           ))}
         </div>
       );
+    case "project-card": {
+      const projects = props.projects?.length ? props.projects : [
+        { title: "E-Commerce Platform", description: "A full-stack online store with React and Node.js. Features real-time inventory, payment integration, and admin dashboard.", techStack: ["React", "Node.js", "PostgreSQL", "Stripe"], liveUrl: "#", repoUrl: "#", image: "https://images.unsplash.com/photo-1557821552-17105176677c?auto=format&fit=crop&w=800&q=80" },
+        { title: "AI Dashboard", description: "Analytics platform powered by machine learning. Visualizes complex data insights with interactive charts and automated reports.", techStack: ["Python", "FastAPI", "React", "TailwindCSS"], liveUrl: "#", repoUrl: "#", image: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=800&q=80" },
+        { title: "Mobile Fitness App", description: "Cross-platform workout tracking app with AI-generated plans, progress tracking, and social features for 10k+ users.", techStack: ["React Native", "Firebase", "TypeScript"], liveUrl: "#", repoUrl: "#", image: "https://images.unsplash.com/photo-1476480862126-209bfaa8edc8?auto=format&fit=crop&w=800&q=80" },
+      ];
+      return wrapStyle(
+        <div className="space-y-4">
+          <h3 className="text-lg font-bold text-center mb-6">{props.title || "Featured Projects"}</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {projects.map((p: any, i: number) => (
+              <div key={i} className="bg-card rounded-lg border border-border overflow-hidden group hover:border-primary/50 transition-colors">
+                <div className="h-36 bg-muted overflow-hidden relative">
+                  {p.image
+                    ? <img src={p.image} alt={p.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                    : <div className="w-full h-full flex items-center justify-center"><FolderKanban className="w-10 h-10 text-muted-foreground" /></div>
+                  }
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-end gap-2 p-3">
+                    {p.liveUrl && p.liveUrl !== "#" && (
+                      <span className="bg-white/20 backdrop-blur-sm text-white text-[10px] px-2 py-1 rounded-md flex items-center gap-1"><ExternalLink className="w-3 h-3" /> Live</span>
+                    )}
+                    {p.repoUrl && p.repoUrl !== "#" && (
+                      <span className="bg-white/20 backdrop-blur-sm text-white text-[10px] px-2 py-1 rounded-md flex items-center gap-1"><Github className="w-3 h-3" /> Code</span>
+                    )}
+                  </div>
+                </div>
+                <div className="p-4">
+                  <h4 className="text-sm font-semibold mb-1.5">{p.title}</h4>
+                  <p className="text-xs text-muted-foreground mb-3 line-clamp-2">{p.description}</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(p.techStack || []).slice(0, 4).map((tech: string, j: number) => (
+                      <span key={j} className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">{tech}</span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    case "experience-timeline": {
+      const items = props.items?.length ? props.items : [
+        { title: "Senior Full Stack Developer", company: "TechCorp Inc.", period: "Jan 2022 – Present", description: "Led development of microservices architecture serving 500k+ users. Mentored 4 junior developers and reduced deployment time by 60%." },
+        { title: "Full Stack Developer", company: "StartupXYZ", period: "Mar 2020 – Dec 2021", description: "Built core product features from scratch using React and Node.js. Integrated payment systems and improved page load performance by 40%." },
+        { title: "Junior Developer", company: "Digital Agency", period: "Jun 2018 – Feb 2020", description: "Developed responsive web applications for 20+ clients. Collaborated with design teams and delivered projects on time and within budget." },
+      ];
+      return wrapStyle(
+        <div className="max-w-2xl mx-auto">
+          <h3 className="text-lg font-bold text-center mb-6">{props.title || "Work Experience"}</h3>
+          <div className="relative">
+            <div className="absolute left-4 top-0 bottom-0 w-px bg-border" />
+            <div className="space-y-6">
+              {items.map((item: any, i: number) => (
+                <div key={i} className="relative pl-10">
+                  <div className="absolute left-2.5 top-1.5 w-3 h-3 rounded-full bg-primary border-2 border-background ring-2 ring-primary/30" />
+                  <div className="bg-card rounded-lg border border-border p-4">
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1 mb-2">
+                      <div>
+                        <h4 className="text-sm font-semibold">{item.title}</h4>
+                        <p className="text-xs text-primary font-medium flex items-center gap-1.5 mt-0.5">
+                          <Briefcase className="w-3 h-3" /> {item.company}
+                        </p>
+                      </div>
+                      <span className="text-[10px] text-muted-foreground bg-muted px-2 py-1 rounded-md whitespace-nowrap shrink-0">{item.period}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed">{item.description}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    case "skills-grid": {
+      const iconForType = (icon: string) => {
+        switch (icon) {
+          case "design": return <Palette className="w-4 h-4" />;
+          case "cloud": return <Cloud className="w-4 h-4" />;
+          case "data": return <Database className="w-4 h-4" />;
+          case "mobile": return <Smartphone className="w-4 h-4" />;
+          case "devops": return <Settings2 className="w-4 h-4" />;
+          default: return <Code2 className="w-4 h-4" />;
+        }
+      };
+      const skills = props.skills?.length ? props.skills : [
+        { name: "React", level: 92, icon: "code" }, { name: "TypeScript", level: 88, icon: "code" },
+        { name: "Node.js", level: 85, icon: "code" }, { name: "PostgreSQL", level: 80, icon: "data" },
+        { name: "Docker", level: 75, icon: "devops" }, { name: "AWS", level: 72, icon: "cloud" },
+        { name: "Figma", level: 70, icon: "design" }, { name: "Python", level: 78, icon: "code" },
+      ];
+      return wrapStyle(
+        <div>
+          <h3 className="text-lg font-bold text-center mb-6">{props.title || "Skills & Technologies"}</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {skills.map((skill: any, i: number) => (
+              <div key={i} className="flex items-center gap-3 bg-card rounded-lg border border-border p-3">
+                <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                  {iconForType(skill.icon)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-xs font-medium truncate">{skill.name}</span>
+                    <span className="text-[10px] text-muted-foreground ml-2 shrink-0">{skill.level}%</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-primary to-accent transition-all"
+                      style={{ width: `${Math.min(100, Math.max(0, skill.level || 0))}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
     default:
       return <div className="text-sm text-muted-foreground">Unknown block type: {block.type}</div>;
   }

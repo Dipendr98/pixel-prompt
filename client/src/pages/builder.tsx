@@ -427,6 +427,7 @@ export default function Builder() {
   const [renamePageId, setRenamePageId] = useState<string | null>(null);
   const [renamePageName, setRenamePageName] = useState("");
   const [rightTab, setRightTab] = useState("properties");
+  const [showWelcomeDialog, setShowWelcomeDialog] = useState(true);
 
   const saveTimeoutRef = useRef<any>(null);
   const initialLoadRef = useRef(false);
@@ -733,6 +734,29 @@ export default function Builder() {
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="h-screen flex flex-col bg-background">
+        <Dialog open={showWelcomeDialog} onOpenChange={setShowWelcomeDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-primary" />
+                Welcome to Advanced Website Builder
+              </DialogTitle>
+            </DialogHeader>
+            <div className="py-2">
+              <p className="text-muted-foreground text-sm leading-relaxed">
+                You are now using our advanced website builder with multiple AI agents!
+                Drag and drop components from the left, or use the AI panel to instantly
+                generate sections and smart layouts.
+              </p>
+            </div>
+            <DialogFooter>
+              <Button onClick={() => setShowWelcomeDialog(false)}>
+                Start Building
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         {/* Top toolbar */}
         <header className="border-b bg-card flex items-center justify-between gap-2 px-3 py-2 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
