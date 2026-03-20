@@ -729,7 +729,23 @@ Return [ ... ] only. No text before or after.`;
           { role: "user", content: coderMsg },
         ],
         { temperature: 0.7, maxTokens: 12288, topP: 0.95 },
-        (content) => (extractBlocks(content) ?? []).length > 0
+        (content) => {
+          // Some model responses come back as wrapper objects instead of a top-level array.
+          // Downstream consumers expect a real `[...]` array, so we validate that contract here.
+          const arrStr = extractJSON(content, "[");
+          if (!arrStr) return false;
+          try {
+            const parsed = JSON.parse(arrStr) as unknown;
+            if (!Array.isArray(parsed) || parsed.length === 0) return false;
+            return (parsed as unknown[]).some((b) => {
+              if (!b || typeof b !== "object") return false;
+              const t = (b as Record<string, unknown>).type;
+              return typeof t === "string" && VALID_TYPES.has(t);
+            });
+          } catch {
+            return false;
+          }
+        }
       );
 
       codeTask.providerName = providerName;

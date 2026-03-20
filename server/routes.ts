@@ -12,7 +12,8 @@ import { sendPaymentSuccessEmail, sendQueryNotificationToAdmin, sendQueryRespons
 import { orchestrate, parseCVText, buildPortfolioBlocksFromCV, type ProgressEvent as OrchestratorEvent } from "./ai/orchestrator.js";
 
 // ── Credit system constants ───────────────────────────────────────────────────
-const FREE_CREDIT_LIMIT = 3000;
+// Free plan is intentionally small so the Pro upgrade happens quickly.
+const FREE_CREDIT_LIMIT = 500;
 const PRO_CREDIT_LIMIT = 10000;
 const CREDITS_PER_GENERATION = 100;
 

@@ -97,7 +97,7 @@ export default function Billing() {
 
   const freePlanFeatures = [
     { icon: Layers, text: "Unlimited projects" },
-    { icon: MessageSquare, text: "3,000 AI credits (100 per generation)" },
+    { icon: MessageSquare, text: "500 AI credits (100 per generation)" },
     { icon: Check, text: "Drag & drop builder" },
     { icon: Check, text: "All block types" },
     { icon: Check, text: "Submit to team" },

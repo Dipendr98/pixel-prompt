@@ -39,6 +39,7 @@ interface Message {
   content: string;
   blocks?: ComponentBlock[];
   tasks?: AgentTask[];
+  targetPageName?: string;
   isStreaming?: boolean;
   error?: boolean;
   progressPercent?: number;
@@ -46,6 +47,7 @@ interface Message {
 
 interface AiPanelProps {
   onApplyBlocks: (blocks: ComponentBlock[]) => void;
+  onApplyBlocksToPage?: (pageName: string, blocks: ComponentBlock[]) => void;
   projectId: string;
 }
 
@@ -114,9 +116,40 @@ function TaskBadge({ task }: { task: AgentTask }) {
   );
 }
 
+function extractTargetPageName(prompt: string): string | null {
+  const raw = prompt.trim();
+  if (!raw) return null;
+
+  // Supported formats (best-effort):
+  // - "page name is Contact"
+  // - "page name: Contact"
+  // - "page: Contact"
+  const patterns: RegExp[] = [
+    /page\s*name\s*(?:is|=|:)\s*([^\n\r]+?)(?=(?:\s+(?:and|also|with|then|to)\b|[.!?]|\n|\r|$))/i,
+    /page\s*[:=]\s*([^\n\r]+?)(?=(?:\s+(?:and|also|with|then|to)\b|[.!?]|\n|\r|$))/i,
+  ];
+
+  for (const re of patterns) {
+    const m = raw.match(re);
+    const candidate = m?.[1];
+    if (!candidate) continue;
+    const cleaned = candidate
+      .replace(/^["'`]+/, "")
+      .replace(/["'`]+$/, "")
+      .replace(/\bpage\b/i, "")
+      .replace(/[.,!?]+$/, "")
+      .trim();
+    if (!cleaned) return null;
+    if (cleaned.length > 40) return null; // avoid capturing huge chunks by accident
+    return cleaned;
+  }
+
+  return null;
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
 
-export function AiPanel({ onApplyBlocks, projectId }: AiPanelProps) {
+export function AiPanel({ onApplyBlocks, onApplyBlocksToPage, projectId }: AiPanelProps) {
   const { isPro } = useAuth();
   const { toast } = useToast();
   const [messages, setMessages] = useState<Message[]>([
@@ -158,6 +191,8 @@ export function AiPanel({ onApplyBlocks, projectId }: AiPanelProps) {
     const prompt = input.trim();
     if (!prompt || isGenerating) return;
 
+    const targetPageName = extractTargetPageName(prompt);
+
     setInput("");
     setIsGenerating(true);
 
@@ -174,6 +209,7 @@ export function AiPanel({ onApplyBlocks, projectId }: AiPanelProps) {
       isStreaming: true,
       tasks: [],
       progressPercent: 0,
+      targetPageName: targetPageName ?? undefined,
     };
     setMessages((prev) => [...prev, agentMsg]);
 
@@ -387,11 +423,6 @@ export function AiPanel({ onApplyBlocks, projectId }: AiPanelProps) {
             3 models
           </Badge>
         </div>
-        {!isPro && (
-          <Badge variant="secondary" className="text-xs" data-testid="badge-ai-limit">
-            3/day free
-          </Badge>
-        )}
       </div>
 
       {/* Messages */}
@@ -451,7 +482,14 @@ export function AiPanel({ onApplyBlocks, projectId }: AiPanelProps) {
                       size="sm"
                       variant="outline"
                       className="h-7 text-xs"
-                      onClick={() => onApplyBlocks(msg.blocks!)}
+                      onClick={() => {
+                        const blocks = msg.blocks!;
+                        if (msg.targetPageName && onApplyBlocksToPage) {
+                          onApplyBlocksToPage(msg.targetPageName, blocks);
+                        } else {
+                          onApplyBlocks(blocks);
+                        }
+                      }}
                       data-testid={`button-apply-blocks-${msg.id}`}
                     >
                       Apply to Canvas

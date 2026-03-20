@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { resetAIUsage } from "./reset-ai-usage";
 import { checkSubscriptions } from "./check-subscriptions";
 import { cleanupPendingPayments } from "./cleanup-pending-payments";

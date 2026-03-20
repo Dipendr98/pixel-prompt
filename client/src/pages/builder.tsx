@@ -205,7 +205,8 @@ function createDefaultBlock(type: string): ComponentBlock {
   const id = nanoid(8);
   const defaults: Record<string, any> = {
     hero: { title: "Welcome to Your Website", subtitle: "Build something amazing with our drag-and-drop builder", buttonText: "Get Started" },
-    navbar: { brand: "MyBrand", links: [{ label: "Home", url: "/" }, { label: "About", url: "/about" }, { label: "Contact", url: "/contact" }], ctaText: "Sign Up" },
+    // Use file-based hrefs so exported ZIP navigation works (index.html, about.html, contact.html, etc.)
+    navbar: { brand: "MyBrand", links: [{ label: "Home", url: "index.html" }, { label: "About", url: "about.html" }, { label: "Contact", url: "contact.html" }], ctaText: "Sign Up" },
     footer: { columns: [{ title: "Company", links: ["About", "Careers", "Blog"] }, { title: "Support", links: ["Help Center", "Contact", "FAQ"] }, { title: "Legal", links: ["Privacy", "Terms", "Cookies"] }], copyright: "2025 Your Company. All rights reserved." },
     section: { title: "New Section" },
     heading: { text: "Heading", align: "left" },
@@ -438,9 +439,24 @@ export default function Builder() {
   const saveTimeoutRef = useRef<any>(null);
   const initialLoadRef = useRef(false);
 
-  const { data: project, isLoading } = useQuery<Project>({
+  const { data: project, isLoading, error } = useQuery<Project>({
     queryKey: ["/api/projects", projectId],
   });
+
+  useEffect(() => {
+    if (!projectId) {
+      toast({ title: "Missing project", description: "Please open a project from the dashboard.", variant: "destructive" });
+      navigate("/dashboard");
+      return;
+    }
+
+    // If the project fetch fails (e.g. 404), don't allow export with an invalid projectId.
+    if (!isLoading && error) {
+      const msg = (error as any)?.message || "Project not found";
+      toast({ title: "Export unavailable", description: msg, variant: "destructive" });
+      navigate("/dashboard");
+    }
+  }, [error, isLoading, navigate, projectId, toast]);
 
   useEffect(() => {
     if (project && !initialLoadRef.current) {
@@ -450,6 +466,8 @@ export default function Builder() {
       setHistory([data]);
       setHistoryIndex(0);
       initialLoadRef.current = true;
+      // Normalize navbar links for static ZIP navigation (index.html, contact.html, etc.)
+      autoLinkNavbars(data);
     }
   }, [project]);
 
@@ -560,10 +578,16 @@ export default function Builder() {
     autoLinkNavbars(newData);
   }, [projectData, updateProjectData]);
 
+  const pagePathToHref = useCallback((pagePath: string) => {
+    if (!pagePath || pagePath === "/") return "index.html";
+    const cleaned = pagePath.replace(/^\//, "");
+    return `${cleaned}.html`;
+  }, []);
+
   const autoLinkNavbars = useCallback((data: ProjectData) => {
     const pageLinks = data.pages.map((p) => ({
       label: p.name,
-      url: p.path === "/" ? "/" : p.path,
+      url: pagePathToHref(p.path),
     }));
     const newData: ProjectData = {
       ...data,
@@ -609,7 +633,7 @@ export default function Builder() {
       const newBlock = createDefaultBlock(activeData.type);
       // If adding navbar, auto-populate with page links
       if (activeData.type === "navbar") {
-        const pageLinks = projectData.pages.map((p) => ({ label: p.name, url: p.path }));
+        const pageLinks = projectData.pages.map((p) => ({ label: p.name, url: pagePathToHref(p.path) }));
         newBlock.props = { ...newBlock.props, links: pageLinks };
       }
       const newBlocks = [...blocks];
@@ -654,6 +678,51 @@ export default function Builder() {
     toast({ title: "Blocks applied", description: `${withIds.length} block(s) added to canvas` });
   };
 
+  // If the AI user prompt targets a specific page (e.g. "page name: Contact"),
+  // generate blocks and apply them to that page inside the same project.
+  const handleApplyAiBlocksToPage = useCallback(
+    (pageName: string, newBlocks: ComponentBlock[]) => {
+      const cleanName = pageName.trim();
+      const withIds = newBlocks.map((b) => ({ ...b, id: b.id || nanoid(8) }));
+      const finalBlocks =
+        withIds.some((b) => b.type === "navbar") ? withIds : [createDefaultBlock("navbar"), ...withIds];
+      if (!cleanName) {
+        updateCurrentPageBlocks([...blocks, ...finalBlocks]);
+        toast({ title: "Blocks applied", description: `${finalBlocks.length} block(s) added to canvas` });
+        return;
+      }
+
+      const newPath =
+        "/" + cleanName.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+
+      const existing =
+        projectData.pages.find((p) => p.path === newPath) ||
+        projectData.pages.find((p) => p.name.toLowerCase() === cleanName.toLowerCase());
+
+      const targetId = existing?.id ?? nanoid(8);
+
+      const newPages = existing
+        ? projectData.pages.map((p) => (p.id === targetId ? { ...p, blocks: finalBlocks } : p))
+        : [
+            ...projectData.pages,
+            { id: targetId, name: cleanName, path: newPath, blocks: finalBlocks, seo: {} },
+          ];
+
+      const newData: ProjectData = { ...projectData, pages: newPages };
+      setCurrentPageId(targetId);
+      setSelectedBlockId(finalBlocks[0]?.id ?? null);
+      updateProjectData(newData);
+      autoLinkNavbars(newData);
+
+      toast({
+        title: existing ? "Page updated" : "Page created",
+        description: `Applied ${finalBlocks.length} block(s) to "${cleanName}".`,
+      });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [autoLinkNavbars, blocks, projectData, toast, updateCurrentPageBlocks, updateProjectData]
+  );
+
   const exportMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch(`/api/export/${projectId}`, { credentials: "include" });
@@ -681,36 +750,6 @@ export default function Builder() {
     },
     onSuccess: () => toast({ title: "Export Started", description: "Your basic HTML download should begin shortly." }),
     onError: (error: Error) => toast({ title: "Export Failed", description: error.message, variant: "destructive" }),
-  });
-
-  const exportNextMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch(`/api/export-next/${projectId}`, { credentials: "include" });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Export failed");
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-
-      const contentDisposition = res.headers.get("Content-Disposition");
-      let filename = "website-nextjs.zip";
-      if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
-        if (filenameMatch && filenameMatch.length === 2) {
-          filename = filenameMatch[1];
-        }
-      }
-      a.download = filename;
-
-      a.click();
-      URL.revokeObjectURL(url);
-    },
-    onError: (err: any) => {
-      toast({ title: "Export failed", description: err.message, variant: "destructive" });
-    },
   });
 
   const submitMutation = useMutation({
@@ -803,23 +842,12 @@ export default function Builder() {
               variant="outline"
               size="sm"
               onClick={() => exportMutation.mutate()}
-              disabled={exportMutation.isPending}
+              disabled={exportMutation.isPending || isLoading || !project || !projectId}
               data-testid="button-export"
               title="Export as HTML/CSS/JS"
             >
               <Download className="w-4 h-4 mr-1" />
               {exportMutation.isPending ? "Exporting..." : "Export"}
-            </Button>
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => exportNextMutation.mutate()}
-              disabled={exportNextMutation.isPending}
-              data-testid="button-export-next"
-              title="Export as Next.js React App"
-            >
-              <Download className="w-4 h-4 mr-1" />
-              {exportNextMutation.isPending ? "Exporting..." : "Export Next.js"}
             </Button>
             <Button variant="outline" size="sm" onClick={() => setShowSubmitDialog(true)} data-testid="button-submit">
               <Send className="w-4 h-4 mr-1" />
@@ -913,7 +941,7 @@ export default function Builder() {
             onAddBlock={(type: string) => {
               const newBlock = createDefaultBlock(type);
               if (type === "navbar") {
-                const pageLinks = projectData.pages.map((p) => ({ label: p.name, url: p.path }));
+                const pageLinks = projectData.pages.map((p) => ({ label: p.name, url: pagePathToHref(p.path) }));
                 newBlock.props = { ...newBlock.props, links: pageLinks };
               }
               updateCurrentPageBlocks([...blocks, newBlock]);
@@ -950,8 +978,8 @@ export default function Builder() {
               <TabsContent value="seo" className="flex-1 mt-0 overflow-hidden">
                 {currentPage && <SeoSettingsPanel page={currentPage} onChange={updatePageSeo} />}
               </TabsContent>
-              <TabsContent value="ai" className="flex-1 mt-0 overflow-hidden">
-                <AiPanel onApplyBlocks={handleApplyAiBlocks} projectId={projectId} />
+              <TabsContent value="ai" className="flex-1 mt-0 overflow-hidden" forceMount>
+                <AiPanel onApplyBlocks={handleApplyAiBlocks} onApplyBlocksToPage={handleApplyAiBlocksToPage} projectId={projectId} />
               </TabsContent>
             </Tabs>
           </div>
