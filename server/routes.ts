@@ -8,7 +8,7 @@ import { migrateProjectSchema } from "@shared/schema";
 import type { ProjectData, PageData } from "@shared/schema";
 import path from "path";
 import fs from "fs";
-import { sendPaymentSuccessEmail, sendQueryNotificationToAdmin, sendQueryResponseToUser } from "./mail";
+import { sendPaymentConfirmationEmail, sendPaymentSuccessEmail, sendQueryNotificationToAdmin, sendQueryResponseToUser, sendTicketNotificationToAdmin, sendTicketResponseToUser } from "./mail";
 import { orchestrate, parseCVText, buildPortfolioBlocksFromCV, type ProgressEvent as OrchestratorEvent } from "./ai/orchestrator.js";
 
 // ── Credit system constants ───────────────────────────────────────────────────
@@ -475,13 +475,31 @@ export async function registerRoutes(
       if (event === "payment.captured") {
         const notes = payload?.payment?.entity?.notes;
         if (notes?.userId) {
+          const paymentEntity = payload?.payment?.entity;
+          const amountBaseUnit = Number(paymentEntity?.amount ?? 0);
+          // Razorpay typically uses `id` as the payment id.
+          const razorpayPaymentId = paymentEntity?.id ?? null;
+
+          // Idempotency: avoid spamming confirmation emails if Razorpay retries the webhook.
+          const existingSub = await storage.getSubscription(notes.userId);
+          const alreadyProcessed =
+            existingSub?.status === "active" &&
+            razorpayPaymentId &&
+            existingSub.razorpaySubscriptionId === razorpayPaymentId;
+
           const periodEnd = new Date();
           periodEnd.setMonth(periodEnd.getMonth() + 1);
           await storage.upsertSubscription(notes.userId, {
             status: "active",
             provider: "razorpay",
+            razorpaySubscriptionId: razorpayPaymentId ?? undefined,
             currentPeriodEnd: periodEnd,
           });
+
+          const user = await storage.getUser(notes.userId);
+          if (!alreadyProcessed && user?.email && amountBaseUnit > 0 && razorpayPaymentId) {
+            await sendPaymentConfirmationEmail(user.email, amountBaseUnit);
+          }
         }
       }
 
@@ -777,6 +795,15 @@ ${body}
       const { subject, message } = req.body;
       if (!subject || !message) return res.status(400).json({ message: "Subject and message required" });
       const ticket = await storage.createSupportTicket(req.user!.id, { subject, message });
+      // Notify admin via email on new ticket creation
+      try {
+        const userEmail = req.user!.email;
+        if (userEmail) {
+          await sendTicketNotificationToAdmin(userEmail, subject, message);
+        }
+      } catch {
+        // Email failures should not block ticket creation
+      }
       res.json(ticket);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -798,7 +825,24 @@ ${body}
       const update: any = { updatedAt: new Date() };
       if (status) update.status = status;
       if (adminReply !== undefined) update.adminReply = adminReply;
+
+      // We need ticket details before updating so we can email the correct user.
+      let ticketEmail: string | null = null;
+      let ticketSubject: string | null = null;
+      try {
+        const allTickets = await storage.getAllSupportTickets();
+        const found = allTickets.find((t: any) => t.id === req.params.id);
+        ticketEmail = found?.userEmail ?? null;
+        ticketSubject = found?.subject ?? null;
+      } catch {
+        // Ignore email lookup issues
+      }
+
       await storage.updateSupportTicket(req.params.id as string, update);
+
+      if (ticketEmail && adminReply !== undefined && adminReply !== null) {
+        await sendTicketResponseToUser(ticketEmail, ticketSubject || "Support Ticket", adminReply, status);
+      }
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -845,7 +889,6 @@ ${body}
     try {
       const { role } = req.body;
       if (!role || !["user", "admin"].includes(role)) return res.status(400).json({ message: "Invalid role" });
-      if (req.params.id === req.user!.id) return res.status(400).json({ message: "Cannot change your own role" });
       await storage.updateUserRole(req.params.id as string, role);
       res.json({ ok: true });
     } catch (err: any) {

@@ -9,6 +9,7 @@ import { Loader2 } from "lucide-react";
 import Landing from "@/pages/landing";
 import AuthLogin from "@/pages/auth-login";
 import AuthSignup from "@/pages/auth-signup";
+import AdminLogin from "@/pages/admin-login";
 import Dashboard from "@/pages/dashboard";
 import Builder from "@/pages/builder";
 import Billing from "@/pages/billing";
@@ -65,6 +66,9 @@ function Router() {
       <Route path="/contact" component={Contact} />
       <Route path="/login">
         <GuestRoute component={AuthLogin} />
+      </Route>
+      <Route path="/admin/login">
+        <GuestRoute component={AdminLogin} />
       </Route>
       <Route path="/signup">
         <GuestRoute component={AuthSignup} />

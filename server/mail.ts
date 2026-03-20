@@ -109,6 +109,25 @@ export async function sendPaymentSuccessEmail(to: string, amountBaseUnit: number
   }
 }
 
+export async function sendPaymentConfirmationEmail(to: string, amountBaseUnit: number) {
+  try {
+    const amount = (amountBaseUnit / 100).toFixed(2);
+    await sendEmail(to, "Payment Received - PixelPrompt Pro", `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2>We received your payment ✅</h2>
+        <p>Hi there,</p>
+        <p>We’ve received your payment for <strong>PixelPrompt Pro</strong>.</p>
+        <p>Amount Paid: <strong>₹${amount}</strong></p>
+        <p>Your subscription is being confirmed now. You’ll receive a second email once everything is activated.</p>
+        <br/>
+        <a href="${process.env.APP_URL || "https://pixel-prompt.app"}/dashboard" style="background: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Go to Dashboard</a>
+      </div>
+    `);
+  } catch (error) {
+    console.error(`[Mail Error] Failed to send payment confirmation email to ${to}:`, error);
+  }
+}
+
 export async function sendQueryNotificationToAdmin(queryName: string, queryEmail: string, subject: string, message: string) {
   try {
     const adminEmail = process.env.ADMIN_EMAIL || defaultFrom;
@@ -144,5 +163,44 @@ export async function sendQueryResponseToUser(to: string, originalSubject: strin
     `);
   } catch (error) {
     console.error(`[Mail Error] Failed to send query response to ${to}:`, error);
+  }
+}
+
+export async function sendTicketNotificationToAdmin(userEmail: string, subject: string, message: string) {
+  try {
+    const adminEmail = process.env.ADMIN_EMAIL || defaultFrom;
+    await sendEmail(adminEmail, `New Support Ticket: ${subject}`, `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2>New Support Ticket Submitted</h2>
+        <p><strong>From:</strong> ${userEmail}</p>
+        <p><strong>Subject:</strong> ${subject}</p>
+        <hr/>
+        <p>${message}</p>
+        <hr/>
+        <p>Login to the admin dashboard to reply to this ticket.</p>
+      </div>
+    `);
+  } catch (error) {
+    console.error(`[Mail Error] Failed to send ticket notification:`, error);
+  }
+}
+
+export async function sendTicketResponseToUser(to: string, originalSubject: string, replyMessage: string, status?: string) {
+  try {
+    const safeStatus = status ? ` (Status: ${status})` : "";
+    await sendEmail(to, `Re: ${originalSubject}${safeStatus}`, `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2>We received your support ticket update ✅</h2>
+        <p>Hi,</p>
+        <p>An admin has replied to your ticket regarding "<strong>${originalSubject}</strong>".</p>
+        <div style="background: #f4f4f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+          <p>${replyMessage}</p>
+        </div>
+        <p>Best regards,</p>
+        <p>The PixelPrompt Team</p>
+      </div>
+    `);
+  } catch (error) {
+    console.error(`[Mail Error] Failed to send ticket response to ${to}:`, error);
   }
 }

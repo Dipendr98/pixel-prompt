@@ -262,6 +262,33 @@ export function setupAuth(app: Express) {
     })(req, res, next);
   });
 
+  // ── Admin-only login (email + password) ───────────────────────────────
+  // Use this instead of /api/auth/login so only admins can create a session.
+  app.post("/api/admin/auth/login", rateLimit(10, 15 * 60 * 1000), (req, res, next) => {
+    passport.authenticate("local", (err: any, user: any, info: any) => {
+      if (err) return next(err);
+      if (!user) return res.status(401).json({ message: info?.message || "Login failed" });
+
+      // Optional allowlist (extra security beyond role-based check)
+      const allow = (process.env.ADMIN_LOGIN_EMAILS || "")
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+
+      const isAdmin = user?.role === "admin";
+      const isAllowedByEmail = allow.length > 0 ? allow.includes(String(user?.email || "").toLowerCase()) : true;
+
+      if (!isAdmin || !isAllowedByEmail) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      req.login(user, (err2) => {
+        if (err2) return next(err2);
+        res.json(user);
+      });
+    })(req, res, next);
+  });
+
   app.post("/api/auth/logout", (req, res) => {
     req.logout((err) => {
       if (err) return res.status(500).json({ message: "Logout failed" });
