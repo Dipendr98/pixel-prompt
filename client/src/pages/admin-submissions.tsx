@@ -236,6 +236,46 @@ export default function AdminSubmissions() {
     },
   });
 
+  const assignSubscriptionMutation = useMutation({
+    mutationFn: async ({
+      userId,
+      status,
+      renewDays,
+    }: {
+      userId: string;
+      status: "active" | "free";
+      renewDays?: number;
+    }) => {
+      await apiRequest("PATCH", `/api/admin/subscriptions/${userId}`, { status, renewDays });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/subscriptions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
+      toast({ title: "Subscription updated" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to update subscription", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const grantCreditsMutation = useMutation({
+    mutationFn: async ({ userId, creditsRemaining }: { userId: string; creditsRemaining?: number }) => {
+      const res = await apiRequest("PATCH", `/api/admin/credits/${userId}`, { creditsRemaining });
+      return res.json();
+    },
+    onSuccess: (res: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/subscriptions"] });
+      toast({
+        title: "Credits assigned",
+        description: res?.actualRemaining != null ? `Remaining: ${res.actualRemaining.toLocaleString()}` : undefined,
+      });
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to assign credits", description: err.message, variant: "destructive" });
+    },
+  });
+
   if (user?.role !== "admin") {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -540,6 +580,44 @@ export default function AdminSubmissions() {
                           <Trash2 className="w-4 h-4 text-muted-foreground" />
                         </Button>
                       </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap mt-3">
+                      <Badge variant={userSub?.status === "active" ? "outline" : "secondary"}>
+                        {userSub?.status === "active" ? "Pro" : "Free"}
+                      </Badge>
+
+                      <Button
+                        size="sm"
+                        variant={userSub?.status === "active" ? "ghost" : "outline"}
+                        disabled={assignSubscriptionMutation.isPending}
+                        onClick={() =>
+                          assignSubscriptionMutation.mutate({ userId: u.id, status: "active", renewDays: 30 })
+                        }
+                        data-testid={`button-make-pro-${u.id}`}
+                      >
+                        Make Pro (30d)
+                      </Button>
+
+                      <Button
+                        size="sm"
+                        variant={userSub?.status === "active" ? "outline" : "ghost"}
+                        disabled={assignSubscriptionMutation.isPending}
+                        onClick={() => assignSubscriptionMutation.mutate({ userId: u.id, status: "free" })}
+                        data-testid={`button-set-free-${u.id}`}
+                      >
+                        Set Free
+                      </Button>
+
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={grantCreditsMutation.isPending}
+                        onClick={() => grantCreditsMutation.mutate({ userId: u.id })}
+                        data-testid={`button-grant-credits-${u.id}`}
+                      >
+                        Grant Full Credits
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>

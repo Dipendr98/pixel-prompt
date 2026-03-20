@@ -969,16 +969,16 @@ export default function Builder() {
                   AI
                 </TabsTrigger>
               </TabsList>
-              <TabsContent value="properties" className="flex-1 mt-0 overflow-hidden">
+              <TabsContent value="properties" className="flex-1 mt-0 overflow-hidden data-[state=inactive]:hidden">
                 <PropertiesPanel block={selectedBlock} onChange={handleBlockUpdate} />
               </TabsContent>
-              <TabsContent value="style" className="flex-1 mt-0 overflow-hidden">
+              <TabsContent value="style" className="flex-1 mt-0 overflow-hidden data-[state=inactive]:hidden">
                 <StyleSettingsPanel settings={projectData.settings || {}} onChange={updateSettings} />
               </TabsContent>
-              <TabsContent value="seo" className="flex-1 mt-0 overflow-hidden">
+              <TabsContent value="seo" className="flex-1 mt-0 overflow-hidden data-[state=inactive]:hidden">
                 {currentPage && <SeoSettingsPanel page={currentPage} onChange={updatePageSeo} />}
               </TabsContent>
-              <TabsContent value="ai" className="flex-1 mt-0 overflow-hidden" forceMount>
+              <TabsContent value="ai" className="flex-1 mt-0 overflow-hidden data-[state=inactive]:hidden" forceMount>
                 <AiPanel onApplyBlocks={handleApplyAiBlocks} onApplyBlocksToPage={handleApplyAiBlocksToPage} projectId={projectId} />
               </TabsContent>
             </Tabs>

@@ -36,6 +36,8 @@ export interface IStorage {
   getAiUsage(userId: string, day: string): Promise<number>;
   getTotalAiUsage(userId: string, sinceDay?: string): Promise<number>;
   incrementAiUsage(userId: string, day: string): Promise<void>;
+  clearAiUsageForUser(userId: string): Promise<void>;
+  setAiUsageForDay(userId: string, day: string, count: number): Promise<void>;
 
   getSubmissions(userId: string): Promise<(Submission & { projectName?: string })[]>;
   getAllSubmissions(): Promise<(Submission & { projectName?: string; userEmail?: string })[]>;
@@ -196,6 +198,19 @@ export class DatabaseStorage implements IStorage {
     } else {
       await db.insert(aiUsage).values({ userId, day, count: 1 });
     }
+  }
+
+  async clearAiUsageForUser(userId: string): Promise<void> {
+    await db.delete(aiUsage).where(eq(aiUsage.userId, userId));
+  }
+
+  async setAiUsageForDay(userId: string, day: string, count: number): Promise<void> {
+    const safeCount = Math.max(0, Math.floor(count));
+
+    await db.delete(aiUsage).where(and(eq(aiUsage.userId, userId), eq(aiUsage.day, day)));
+    if (safeCount === 0) return;
+
+    await db.insert(aiUsage).values({ userId, day, count: safeCount });
   }
 
   async getSubmissions(userId: string): Promise<(Submission & { projectName?: string })[]> {
@@ -563,6 +578,19 @@ export class InMemoryStorage implements IStorage {
   async incrementAiUsage(userId: string, day: string): Promise<void> {
     const key = `${userId}:${day}`;
     this.aiUsageMap.set(key, (this.aiUsageMap.get(key) ?? 0) + 1);
+  }
+
+  async clearAiUsageForUser(userId: string): Promise<void> {
+    for (const key of [...this.aiUsageMap.keys()]) {
+      if (key.startsWith(userId + ":")) this.aiUsageMap.delete(key);
+    }
+  }
+
+  async setAiUsageForDay(userId: string, day: string, count: number): Promise<void> {
+    const safeCount = Math.max(0, Math.floor(count));
+    const key = `${userId}:${day}`;
+    if (safeCount === 0) this.aiUsageMap.delete(key);
+    else this.aiUsageMap.set(key, safeCount);
   }
 
   async getSubmissions(userId: string): Promise<(Submission & { projectName?: string })[]> {

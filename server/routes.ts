@@ -924,6 +924,92 @@ ${body}
     }
   });
 
+  app.patch("/api/admin/subscriptions/:userId", requireAdmin, async (req, res) => {
+    try {
+      const { status, renewDays, currentPeriodEnd, provider } = req.body as {
+        status?: "active" | "free";
+        renewDays?: number;
+        currentPeriodEnd?: string | null;
+        provider?: string;
+      };
+
+      if (!status || !["active", "free"].includes(status)) {
+        return res.status(400).json({ message: "status must be either 'active' or 'free'" });
+      }
+
+      let periodEnd: Date | null = null;
+      if (status === "active") {
+        const days = typeof renewDays === "number" && renewDays > 0 ? renewDays : 30;
+        if (currentPeriodEnd) {
+          periodEnd = new Date(currentPeriodEnd);
+          if (Number.isNaN(periodEnd.getTime())) {
+            return res.status(400).json({ message: "Invalid currentPeriodEnd date" });
+          }
+        } else {
+          periodEnd = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+        }
+      }
+
+      const updated = await storage.upsertSubscription(req.params.userId as string, {
+        status,
+        provider: provider ?? "admin",
+        currentPeriodEnd: status === "active" ? periodEnd : null,
+      });
+
+      res.json({ ok: true, subscription: updated });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/admin/credits/:userId", requireAdmin, async (req, res) => {
+    try {
+      const { creditsRemaining } = req.body as { creditsRemaining?: number };
+      const userId = req.params.userId as string;
+
+      const sub = await storage.getSubscription(userId);
+      const isPro = sub?.status === "active";
+      const creditLimit = isPro ? PRO_CREDIT_LIMIT : FREE_CREDIT_LIMIT;
+
+      const requestedRemaining =
+        typeof creditsRemaining === "number" ? creditsRemaining : creditLimit;
+
+      if (!Number.isFinite(requestedRemaining) || requestedRemaining < 0) {
+        return res.status(400).json({ message: "creditsRemaining must be a non-negative number" });
+      }
+      if (requestedRemaining > creditLimit) {
+        return res.status(400).json({ message: `creditsRemaining cannot exceed ${creditLimit} for this plan` });
+      }
+
+      // Reset all AI usage and set remaining credits immediately.
+      await storage.clearAiUsageForUser(userId);
+      const today = new Date().toISOString().split("T")[0];
+
+      // Each generation consumes `CREDITS_PER_GENERATION` credits.
+      const desiredRemaining = Math.floor(Math.max(0, requestedRemaining));
+      const generationsToUse = Math.max(
+        0,
+        Math.ceil((creditLimit - desiredRemaining) / CREDITS_PER_GENERATION),
+      );
+
+      await storage.setAiUsageForDay(userId, today, generationsToUse);
+
+      const actualRemaining = Math.max(
+        0,
+        creditLimit - generationsToUse * CREDITS_PER_GENERATION,
+      );
+
+      res.json({
+        ok: true,
+        plan: isPro ? "pro" : "free",
+        requestedRemaining,
+        actualRemaining,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/admin/activity", requireAdmin, async (req, res) => {
     try {
       const activity = await storage.getRecentActivity(20);

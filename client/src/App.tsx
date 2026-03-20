@@ -41,6 +41,24 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
   return <Component />;
 }
 
+function AdminProtectedRoute({ component: Component }: { component: React.ComponentType }) {
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!user || user.role !== "admin") {
+    return <Redirect to="/admin/login" />;
+  }
+
+  return <Component />;
+}
+
 function GuestRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
 
@@ -67,9 +85,7 @@ function Router() {
       <Route path="/login">
         <GuestRoute component={AuthLogin} />
       </Route>
-      <Route path="/admin/login">
-        <GuestRoute component={AdminLogin} />
-      </Route>
+      <Route path="/admin/login" component={AdminLogin} />
       <Route path="/signup">
         <GuestRoute component={AuthSignup} />
       </Route>
@@ -87,7 +103,7 @@ function Router() {
         <ProtectedRoute component={Billing} />
       </Route>
       <Route path="/admin/submissions">
-        <ProtectedRoute component={AdminSubmissions} />
+        <AdminProtectedRoute component={AdminSubmissions} />
       </Route>
 
       <Route path="/submissions">
