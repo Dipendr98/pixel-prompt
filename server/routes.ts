@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, requireAuth, requireAdmin } from "./auth";
+import { setupAuth, requireAuth, requireAdmin, hashPassword } from "./auth";
 import { nanoid } from "nanoid";
 import crypto from "crypto";
 import { migrateProjectSchema } from "@shared/schema";
@@ -890,6 +890,30 @@ ${body}
       const { role } = req.body;
       if (!role || !["user", "admin"].includes(role)) return res.status(400).json({ message: "Invalid role" });
       await storage.updateUserRole(req.params.id as string, role);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Admin-only: reset the password for an admin user.
+  // (Used for "change admin password" from the admin panel.)
+  app.patch("/api/admin/users/:id/password", requireAdmin, async (req, res) => {
+    try {
+      const { password } = req.body as { password?: string };
+      if (!password || typeof password !== "string") {
+        return res.status(400).json({ message: "password is required" });
+      }
+      if (password.trim().length < 6) {
+        return res.status(400).json({ message: "Password must be at least 6 characters" });
+      }
+
+      const targetUser = await storage.getUser(req.params.id as string);
+      if (!targetUser) return res.status(404).json({ message: "User not found" });
+      if (targetUser.role !== "admin") return res.status(400).json({ message: "Target user is not an admin" });
+
+      const hashedPassword = await hashPassword(password.trim());
+      await storage.updateUserPassword(req.params.id as string, hashedPassword);
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

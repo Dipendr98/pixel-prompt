@@ -83,6 +83,9 @@ export default function AdminSubmissions() {
     contactAddress: "",
   });
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: string; id: string; label: string } | null>(null);
+  const [adminPasswordReset, setAdminPasswordReset] = useState<{ userId: string; email: string } | null>(null);
+  const [adminPasswordResetValue, setAdminPasswordResetValue] = useState("");
+  const [adminPasswordResetConfirm, setAdminPasswordResetConfirm] = useState("");
 
   const { data: stats } = useQuery<{ totalUsers: number; totalProjects: number; activeSubscriptions: number; openTickets: number; totalSubmissions: number }>({
     queryKey: ["/api/admin/stats"],
@@ -273,6 +276,22 @@ export default function AdminSubmissions() {
     },
     onError: (err: any) => {
       toast({ title: "Failed to assign credits", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const resetAdminPasswordMutation = useMutation({
+    mutationFn: async ({ userId, password }: { userId: string; password: string }) => {
+      await apiRequest("PATCH", `/api/admin/users/${userId}/password`, { password });
+      return { ok: true };
+    },
+    onSuccess: () => {
+      toast({ title: "Password updated" });
+      setAdminPasswordReset(null);
+      setAdminPasswordResetValue("");
+      setAdminPasswordResetConfirm("");
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to update password", description: err.message, variant: "destructive" });
     },
   });
 
@@ -618,6 +637,22 @@ export default function AdminSubmissions() {
                       >
                         Grant Full Credits
                       </Button>
+
+                      {u.role === "admin" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={resetAdminPasswordMutation.isPending}
+                          onClick={() => {
+                            setAdminPasswordReset({ userId: u.id, email: u.email });
+                            setAdminPasswordResetValue("");
+                            setAdminPasswordResetConfirm("");
+                          }}
+                          data-testid={`button-reset-admin-password-${u.id}`}
+                        >
+                          Reset Admin Password
+                        </Button>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -1318,6 +1353,75 @@ export default function AdminSubmissions() {
             >
               <Send className="w-3.5 h-3.5 mr-1" />
               {updateTicketMutation.isPending ? "Sending..." : "Send Reply"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!adminPasswordReset}
+        onOpenChange={(open) => {
+          if (!open) {
+            setAdminPasswordReset(null);
+            setAdminPasswordResetValue("");
+            setAdminPasswordResetConfirm("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset Admin Password</DialogTitle>
+            <DialogDescription>
+              Set a new password for this admin user. They can login using the new password immediately.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <Input
+              type="password"
+              placeholder="New password (min 6 chars)"
+              value={adminPasswordResetValue}
+              onChange={(e) => setAdminPasswordResetValue(e.target.value)}
+              data-testid="input-admin-password"
+            />
+            <Input
+              type="password"
+              placeholder="Confirm new password"
+              value={adminPasswordResetConfirm}
+              onChange={(e) => setAdminPasswordResetConfirm(e.target.value)}
+              data-testid="input-admin-password-confirm"
+            />
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setAdminPasswordReset(null);
+                setAdminPasswordResetValue("");
+                setAdminPasswordResetConfirm("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!adminPasswordReset) return;
+                const newPwd = adminPasswordResetValue.trim();
+                if (newPwd.length < 6) {
+                  toast({ title: "Password too short", description: "Use at least 6 characters.", variant: "destructive" });
+                  return;
+                }
+                if (newPwd !== adminPasswordResetConfirm) {
+                  toast({ title: "Passwords do not match", variant: "destructive" });
+                  return;
+                }
+                resetAdminPasswordMutation.mutate({ userId: adminPasswordReset.userId, password: newPwd });
+              }}
+              disabled={resetAdminPasswordMutation.isPending}
+              data-testid="button-reset-admin-password"
+            >
+              {resetAdminPasswordMutation.isPending ? "Updating..." : "Update Password"}
             </Button>
           </DialogFooter>
         </DialogContent>
