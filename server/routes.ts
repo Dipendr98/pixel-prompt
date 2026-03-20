@@ -11,6 +11,11 @@ import fs from "fs";
 import { sendPaymentSuccessEmail, sendQueryNotificationToAdmin, sendQueryResponseToUser } from "./mail";
 import { orchestrate, parseCVText, buildPortfolioBlocksFromCV, type ProgressEvent as OrchestratorEvent } from "./ai/orchestrator.js";
 
+// ── Credit system constants ───────────────────────────────────────────────────
+const FREE_CREDIT_LIMIT = 3000;
+const PRO_CREDIT_LIMIT = 10000;
+const CREDITS_PER_GENERATION = 100;
+
 // ── Shared multipart helpers ──────────────────────────────────────────────────
 
 function readRawBody(req: import("http").IncomingMessage): Promise<string> {
@@ -182,13 +187,33 @@ export async function registerRoutes(
 
       const sub = await storage.getSubscription(userId);
       const isPro = sub?.status === "active";
-      const today = new Date().toISOString().split("T")[0];
 
-      if (!isPro) {
-        const usage = await storage.getAiUsage(userId, today);
-        if (usage >= 3) {
+      if (isPro) {
+        // Pro users: count only current billing period usage
+        const today = new Date().toISOString().split("T")[0];
+        const periodStart = sub?.currentPeriodEnd
+          ? new Date(new Date(sub.currentPeriodEnd).getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
+          : today;
+        // For pro, check the monthly allotment
+        const totalUsed = await storage.getTotalAiUsage(userId, periodStart);
+        const creditsUsed = totalUsed * CREDITS_PER_GENERATION;
+        if (creditsUsed >= PRO_CREDIT_LIMIT) {
           return res.status(429).json({
-            message: "Daily AI limit reached (3/day). Upgrade to Pro for unlimited.",
+            message: `You've used all ${PRO_CREDIT_LIMIT.toLocaleString()} Pro credits this month. Credits reset on your next billing date.`,
+            creditsUsed,
+            creditsTotal: PRO_CREDIT_LIMIT,
+            upgradeRequired: false,
+          });
+        }
+      } else {
+        const totalUsed = await storage.getTotalAiUsage(userId);
+        const creditsUsed = totalUsed * CREDITS_PER_GENERATION;
+        if (creditsUsed >= FREE_CREDIT_LIMIT) {
+          return res.status(429).json({
+            message: `You've used all ${FREE_CREDIT_LIMIT.toLocaleString()} free credits. Upgrade to Pro for ₹100/month to get 10,000 credits.`,
+            creditsUsed,
+            creditsTotal: FREE_CREDIT_LIMIT,
+            upgradeRequired: true,
           });
         }
       }
@@ -213,6 +238,7 @@ export async function registerRoutes(
         try {
           const result = await orchestrate(prompt, writeEvent);
           // Only deduct usage credit after successful generation
+          const today = new Date().toISOString().split("T")[0];
           await storage.incrementAiUsage(userId, today);
           if (!res.writableEnded) {
             res.write(
@@ -235,6 +261,7 @@ export async function registerRoutes(
       } else {
         // ── Classic mode: collect all progress, return final JSON ─────────
         const result = await orchestrate(prompt);
+        const today = new Date().toISOString().split("T")[0];
         await storage.incrementAiUsage(userId, today);
         res.json({ message: result.message, blocks: result.blocks, plan: result.plan });
       }
@@ -263,6 +290,42 @@ export async function registerRoutes(
     }
   });
 
+  // ── Credits endpoint: returns user's credit balance ─────────────────────────
+  app.get("/api/credits", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const sub = await storage.getSubscription(userId);
+      const isPro = sub?.status === "active";
+      
+      let totalGenerations = 0;
+      if (isPro) {
+        const today = new Date().toISOString().split("T")[0];
+        const periodStart = sub?.currentPeriodEnd
+          ? new Date(new Date(sub.currentPeriodEnd).getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
+          : today;
+        totalGenerations = await storage.getTotalAiUsage(userId, periodStart);
+      } else {
+        totalGenerations = await storage.getTotalAiUsage(userId);
+      }
+      
+      const creditsUsed = totalGenerations * CREDITS_PER_GENERATION;
+      const creditLimit = isPro ? PRO_CREDIT_LIMIT : FREE_CREDIT_LIMIT;
+
+      res.json({
+        plan: isPro ? "pro" : "free",
+        creditsUsed,
+        creditsTotal: creditLimit,
+        creditsRemaining: Math.max(0, creditLimit - creditsUsed),
+        totalGenerations,
+        generationsRemaining: Math.max(0, Math.floor((creditLimit - creditsUsed) / CREDITS_PER_GENERATION)),
+        subscriptionEnd: sub?.currentPeriodEnd || null,
+        pricePerMonth: 100, // ₹100/month
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/razorpay/order", requireAuth, async (req, res) => {
     try {
       const keyId = process.env.RAZORPAY_KEY_ID;
@@ -276,7 +339,7 @@ export async function registerRoutes(
       const rzp = new Razorpay({ key_id: keyId, key_secret: keySecret });
 
       const order = await rzp.orders.create({
-        amount: 900 * 100,
+        amount: 100 * 100, // ₹100 = 10000 paise
         currency: "INR",
         receipt: `order_${nanoid(8)}`,
         notes: { userId: req.user!.id, plan: "pro" },
@@ -322,7 +385,7 @@ export async function registerRoutes(
       });
 
       // Send Payment Success Email
-      await sendPaymentSuccessEmail(req.user!.email, 900 * 100);
+      await sendPaymentSuccessEmail(req.user!.email, 100 * 100);
 
       res.json({ ok: true, status: "active" });
     } catch (err: any) {
@@ -430,10 +493,13 @@ export async function registerRoutes(
   app.get("/api/export/:projectId", requireAuth, async (req, res) => {
     try {
       const userId = req.user!.id;
-      const sub = await storage.getSubscription(userId);
-
-      const project = await storage.getProject(req.params.projectId as string, userId);
+      const projectId = req.params.projectId as string;
+      const [sub, project] = await Promise.all([
+        storage.getSubscription(userId),
+        storage.getProjectById(projectId),
+      ]);
       if (!project) return res.status(404).send("Project not found");
+      if (project.userId !== userId) return res.status(403).send("Access denied");
 
       const data = migrateProjectSchema(project.schema);
       const css = generateCSS(data.settings || {});
@@ -493,12 +559,69 @@ export async function registerRoutes(
     }
   });
 
+  // Live preview endpoint — returns full standalone HTML for iframe rendering
+  app.get("/api/preview/:projectId", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const project = await storage.getProjectById(req.params.projectId as string);
+      if (!project) return res.status(404).send("Project not found");
+      if (project.userId !== userId) return res.status(403).send("Access denied");
+
+      const data = migrateProjectSchema(project.schema);
+      const css = generateCSS(data.settings || {});
+      const page = data.pages[0];
+      if (!page) return res.status(404).send("No pages found");
+
+      const bodyHtml = generatePageHtml(page.blocks);
+      const scriptJs = `
+        const observer = new IntersectionObserver((entries) => {
+          entries.forEach(entry => {
+            if (entry.isIntersecting) {
+              const anim = entry.target.getAttribute('data-animate');
+              if (anim) entry.target.classList.add('animate-' + anim);
+              observer.unobserve(entry.target);
+            }
+          });
+        }, { threshold: 0.1 });
+        document.querySelectorAll('[data-animate]').forEach(el => observer.observe(el));
+      `;
+
+      // If no blocks, return a friendly placeholder instead of blank white
+      const body = bodyHtml.trim() || `
+        <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:#f8f9fa;font-family:system-ui,sans-serif;color:#6b7280;text-align:center;padding:40px">
+          <div style="font-size:48px">🏗️</div>
+          <h2 style="font-size:1.5rem;font-weight:600;color:#374151;margin:0">This page has no blocks yet</h2>
+          <p style="margin:0;max-width:400px">Use the AI Agent or drag components from the left panel to start building your website.</p>
+        </div>`;
+
+      const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escHtml(project.name)}</title>
+  <style>${css}</style>
+</head>
+<body>
+${body}
+<script>${scriptJs}</script>
+</body>
+</html>`;
+
+      res.set("Content-Type", "text/html");
+      res.send(html);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
   // Export as Next.js React Application
   app.get("/api/export-next/:projectId", requireAuth, async (req, res) => {
     try {
       const userId = req.user!.id;
-      const project = await storage.getProject(req.params.projectId as string, userId);
+      const project = await storage.getProjectById(req.params.projectId as string);
       if (!project) return res.status(404).send("Project not found");
+      if (project.userId !== userId) return res.status(403).send("Access denied");
 
       const data = migrateProjectSchema(project.schema);
       const css = generateCSS(data.settings || {});
@@ -828,7 +951,7 @@ function generatePageHtml(blocks: any[]): string {
     const props = block.props || {};
     const styleAttr = block.style ? ` style="${Object.entries(block.style)
       .filter(([k, v]) => v && !k.startsWith('animation') && k !== 'customCss')
-      .map(([k, v]) => `${k.replace(/([A-Z])/g, '-$1').toLowerCase()}:${v}`).join(';')}${block.style.customCss ? ';' + block.style.customCss : ''}"` : "";
+      .map(([k, v]) => `${k.replace(/([A-Z])/g, '-$1').toLowerCase()}:${String(v)}`).join(';')}${block.style.customCss ? ';' + block.style.customCss : ''}"` : "";
 
     // Animation attributes
     const animType = block.style?.animation && block.style.animation !== "none" ? block.style.animation : "";
@@ -1149,6 +1272,6 @@ img { max-width: 100%; height: auto; }
 }`;
 }
 
-function escHtml(str: string): string {
-  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+function escHtml(str: unknown): string {
+  return String(str ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }

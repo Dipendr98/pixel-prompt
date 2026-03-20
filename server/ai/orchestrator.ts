@@ -17,7 +17,7 @@
  *   Phase 3 — REVIEW: Deep quality pass — coherence, contrast, animations, completeness.
  */
 
-import { callWithFallback } from "./providers.js";
+import { callWithFallback, callWithFallbackValidated } from "./providers.js";
 import { nanoid } from "nanoid";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -34,7 +34,7 @@ export interface AgentTask {
 }
 
 export interface DiscoveryResult {
-  websiteType: "portfolio" | "ecommerce" | "saas" | "blog" | "restaurant" | "agency" | "landing" | "other";
+  websiteType: "portfolio" | "ecommerce" | "saas" | "blog" | "restaurant" | "agency" | "landing" | "event" | "education" | "personal" | "other";
   subType: string;
   profession: string;
   targetAudience: string;
@@ -95,6 +95,7 @@ const VALID_TYPES = new Set([
   "divider", "spacer", "countdown", "product-card", "social-links", "video",
   "blog-post", "blog-list", "cart", "checkout-form", "map", "booking-form",
   "login-form", "section", "project-card", "experience-timeline", "skills-grid",
+  "process-steps", "service-card", "menu-grid", "event-schedule", "course-card", "comparison-table",
 ]);
 
 // ── PHASE 0: Discovery Prompt ─────────────────────────────────────────────────
@@ -150,8 +151,8 @@ STEP 7 — CONTENT STRATEGY
 
 <output_schema>
 {
-  "websiteType": "portfolio|ecommerce|saas|blog|restaurant|agency|landing|other",
-  "subType": "specific sub-type e.g. developer|designer|photographer|consultant|startup|fashion|food|fitness",
+  "websiteType": "portfolio|ecommerce|saas|blog|restaurant|agency|landing|event|education|personal|other",
+  "subType": "specific sub-type e.g. developer|designer|photographer|consultant|startup|fashion|food|fitness|medical|real-estate|non-profit|freelancer|gym|course-platform|conference|wedding|music|law-firm",
   "profession": "Exact professional title or business type",
   "targetAudience": "Who will visit this — be specific (e.g. 'Tech recruiters and startup founders')",
   "primaryGoal": "The #1 conversion goal of this page",
@@ -212,6 +213,48 @@ AGENCY:
 BLOG/PERSONAL:
   Must-haves: hero, blog-list, newsletter, footer
   Design: Clean, readable, content-first
+
+EVENT/CONFERENCE:
+  Audience: Potential attendees, sponsors, speakers
+  Goal: Ticket sales and registrations
+  Must-haves: hero (event name + date + CTA), countdown, features (event highlights), team (speakers), pricing-table (tickets), stats, testimonials, booking-form, footer
+  Narrative: "This is the event → See what you'll learn → Meet the speakers → Get your ticket"
+  Design: Bold, energetic with vibrant orange/yellow, dynamic feel with countdown urgency
+
+EDUCATION/COURSE:
+  Audience: Students, professionals seeking upskilling, lifelong learners
+  Goal: Course enrollments and sign-ups
+  Must-haves: hero (platform name + value prop), features (course highlights), stats (students/courses/ratings), testimonials (student reviews), pricing-table (plans), cta, newsletter, footer
+  Narrative: "Learn from the best → See our courses → Hear from students → Start learning"
+  Design: Clean, trustworthy with sky-blue/teal, educational and approachable
+
+PERSONAL/RESUME:
+  Audience: Recruiters, employers, potential clients
+  Goal: Get hired, make professional connections
+  Must-haves: hero (name + title + CTA), skills-grid, project-card, experience-timeline, stats, contact-form, social-links, footer
+  Narrative: "Who I am → What I can do → Proof of work → Let's connect"
+  Design: Dark modern with accent color, professional but memorable
+
+FREELANCER/CONSULTANT:
+  Audience: Potential clients, business decision-makers
+  Must-haves: hero, features (services), testimonials, pricing-table (packages), stats, cta, contact-form, footer
+  Design: Professional, trustworthy, personal brand-forward
+
+MEDICAL/HEALTH:
+  Must-haves: hero, features (services), team (doctors), testimonials, stats, booking-form, map, footer
+  Design: Clean, trustworthy blues/greens, calming
+
+REAL ESTATE:
+  Must-haves: hero, product-card (listings), features (why us), stats, testimonials, contact-form, map, footer
+  Design: Elegant dark/gold or modern slate
+
+FITNESS/GYM:
+  Must-haves: hero, features (programs), pricing-table (memberships), team (trainers), testimonials, stats, booking-form, gallery, footer
+  Design: Bold, energetic with dark backgrounds and neon accents
+
+NON-PROFIT:
+  Must-haves: hero, features (impact areas), stats (impact numbers), testimonials, team, cta (donate), newsletter, footer
+  Design: Warm, inspiring with earthy tones or hopeful greens
 </industry_intelligence>`;
 
 // ── PHASE 1: Planner Prompt ───────────────────────────────────────────────────
@@ -244,17 +287,84 @@ Return ONLY a valid JSON object — no markdown, no code fences.
 </output_schema>
 
 <design_rules>
-1. BLOCKS: 6–9 items. Every block must serve the page's goal. No filler.
-2. ORDER: navbar (if needed) → hero → proof/features → work/products → testimonials/stats → conversion → footer
-3. COLORS: Use VIBRANT, MEMORABLE palettes. Think Stripe, Linear, Vercel, Figma — not your bank's website.
-   - Developer/tech: Deep dark + neon green/cyan/violet (#10b981, #06b6d4, #8b5cf6)
-   - Designer: Rich purples + pinks or bold orange/yellow (#f97316, #ec4899, #a855f7)
-   - Photographer: Near-black or pure white, single accent color (#111827, #f9fafb, #d97706)
-   - SaaS: Deep navy/slate + electric blue/indigo (#3b82f6, #6366f1, #0ea5e9)
-   - Restaurant: Warm amber/red/golden (#d97706, #ef4444, #f59e0b)
-   - Ecommerce: High-contrast orange or green (#f97316, #16a34a)
-4. PORTFOLIO: ALWAYS include project-card (shows work), skills-grid (shows expertise). These are NON-NEGOTIABLE for any portfolio.
-5. NARRATIVE: The page should flow like a story. Start with "who I am/what we do", build trust, show proof, then convert.
+1. BLOCKS: 7–12 items. Every block serves the page goal. No filler.
+
+2. VARY THE ORDER — Do NOT always use hero → features → testimonials → footer. Match the narrative arc:
+   - Portfolio: navbar → hero → stats → skills-grid → project-card → experience-timeline → testimonials → contact-form → footer
+   - SaaS: navbar → hero → logo-cloud → process-steps → features → comparison-table → pricing-table → faq → cta → footer
+   - Restaurant: navbar → hero → banner → features → gallery → menu-grid → stats → testimonials → booking-form → map → footer
+   - Agency: hero → logo-cloud → service-card → process-steps → team → stats → testimonials → cta → footer
+   - Event: navbar → hero → countdown → features → event-schedule → team → pricing-table → faq → newsletter → footer
+   - Ecommerce: navbar → hero → banner → product-card → features → stats → testimonials → newsletter → footer
+
+3. MANDATORY COLOR VARIETY — Choose ONE palette from this list. You MUST pick a different feel each time based on the user's industry and personality. Do NOT default to the same dark-blue-purple combo every time.
+
+   ── DARK THEMES ──
+   "Terminal Green"  → bg:#050f05  text:#e2ffe2  primary:#00e676  secondary:#004d20  accent:#69ff47
+   "Neon Tokyo"      → bg:#06001a  text:#fff0ff  primary:#ff2d78  secondary:#3d0066  accent:#b300ff
+   "Arctic Night"    → bg:#020d1c  text:#dff4ff  primary:#00b0ff  secondary:#003366  accent:#40c4ff
+   "Crimson Noir"    → bg:#0d0105  text:#fff0f3  primary:#ff1744  secondary:#4a0010  accent:#ff80ab
+   "Amber Forge"     → bg:#0c0800  text:#fff8e7  primary:#ffa000  secondary:#3d2000  accent:#ffca28
+   "Ocean Abyss"     → bg:#010d16  text:#e0fafa  primary:#00bcd4  secondary:#00363a  accent:#84ffff
+   "Violet Surge"    → bg:#07030f  text:#f5e8ff  primary:#aa00ff  secondary:#220040  accent:#e040fb
+   "Gold Matrix"     → bg:#080700  text:#fffff0  primary:#ffd600  secondary:#3d2f00  accent:#ffab40
+   "Jade Dark"       → bg:#010f07  text:#e8fff4  primary:#00c853  secondary:#003319  accent:#b9f6ca
+   "Cobalt Strike"   → bg:#010413  text:#e8ecff  primary:#3d5afe  secondary:#000e70  accent:#7986cb
+
+   ── LIGHT THEMES ──
+   "Clean Mint"      → bg:#f0fdf4  text:#052e16  primary:#16a34a  secondary:#dcfce7  accent:#4ade80
+   "Rose Canvas"     → bg:#fff1f2  text:#4c0519  primary:#e11d48  secondary:#ffe4e6  accent:#fb7185
+   "Sky Platform"    → bg:#f0f9ff  text:#0c4a6e  primary:#0369a1  secondary:#e0f2fe  accent:#38bdf8
+   "Warm Peach"      → bg:#fff7ed  text:#7c2d12  primary:#ea580c  secondary:#ffedd5  accent:#fb923c
+   "Lavender Dream"  → bg:#f5f3ff  text:#2e1065  primary:#7c3aed  secondary:#ede9fe  accent:#a78bfa
+   "Editorial White" → bg:#ffffff  text:#111111  primary:#111111  secondary:#f5f5f5  accent:#6d28d9
+   "Lemon Fresh"     → bg:#fefce8  text:#422006  primary:#ca8a04  secondary:#fef9c3  accent:#a3e635
+   "Blush Pro"       → bg:#fdf4ff  text:#3b0764  primary:#a21caf  secondary:#fae8ff  accent:#e879f9
+   "Sage Studio"     → bg:#f7fef5  text:#052e08  primary:#15803d  secondary:#dcfce7  accent:#86efac
+
+   ── BOLD / VIVID THEMES ──
+   "Electric Dusk"   → bg:#0a0022  text:#f0e8ff  primary:#7c3aed  secondary:#2d0070  accent:#f0abfc
+   "Sunset Blaze"    → bg:#1a0533  text:#fff0e8  primary:#ff5722  secondary:#4a1000  accent:#ff9100
+   "Coral Punch"     → bg:#1a0600  text:#fff3ee  primary:#ff4500  secondary:#4d1300  accent:#ff8c42
+   "Deep Grape"      → bg:#0d0018  text:#f3e5ff  primary:#8b00ff  secondary:#26004d  accent:#ce93d8
+   "Forest Pro"      → bg:#011a04  text:#f0fff4  primary:#15803d  secondary:#022808  accent:#86efac
+   "Retro Pop"       → bg:#fef3c7  text:#1c1917  primary:#d97706  secondary:#fde68a  accent:#f43f5e
+   "Neo Brutalist"   → bg:#f5f500  text:#000000  primary:#000000  secondary:#e5e500  accent:#ff0066
+
+4. DESIGN PERSONALITY — The "style" field MUST describe one of these unique aesthetics (rotate through them, don't repeat):
+   - "Brutalist — heavy black borders, oversized bold typography, raw geometric shapes, high contrast"
+   - "Glassmorphism — frosted glass cards with blur backdrop, subtle 1px borders, layered depth"
+   - "Editorial magazine — asymmetric sections, serif display headlines, dramatic type scale, art direction"
+   - "Cyberpunk terminal — neon glow effects, scanline aesthetic, monospace accent fonts, glitch energy"
+   - "Minimalist zen — extreme whitespace, whisper-thin dividers, restrained color, premium breathing room"
+   - "Bold startup — thick geometric accents, gradient fills, oversized numbers/stats, kinetic energy"
+   - "Luxury dark — champagne gold accents, refined micro-typography, opulent dark backgrounds"
+   - "Flat illustrated — clean block colors, friendly rounded shapes, playful icon-driven layout"
+   - "Retro nostalgic — warm paper tones, vintage typography, distressed textures, nostalgic charm"
+   - "Neon night — vivid neon highlights on very dark backgrounds, electric glow, club energy"
+
+5. SECTION BACKGROUND RHYTHM — MANDATORY variety within a page:
+   - Hero: ALWAYS the primary/brand color or gradient-inspired background — make it dramatic
+   - Features/Services section: use secondary color (slightly lighter than page bg)
+   - Stats/Numbers: use accent-tinted background for punch
+   - Testimonials: use a distinctly different bg from neighboring sections
+   - CTA/Newsletter: use PRIMARY color bg for maximum contrast + white text
+   - Footer: always near-black (#0c0c0c) or very dark regardless of theme
+   RULE: No two consecutive sections can have the same backgroundColor hex.
+
+6. PORTFOLIO: ALWAYS include project-card + skills-grid. NON-NEGOTIABLE.
+7. EVENT: ALWAYS include countdown + event-schedule + pricing-table.
+8. EDUCATION: ALWAYS include course-card + stats + testimonials.
+9. PERSONAL/RESUME: ALWAYS include skills-grid + experience-timeline + project-card + contact-form.
+10. SAAS: ALWAYS include process-steps + features + pricing-table. Add comparison-table if 8+ blocks.
+11. RESTAURANT: ALWAYS include menu-grid + gallery + booking-form.
+12. AGENCY: ALWAYS include service-card + process-steps + team.
+13. ANTI-REPETITION: FORBIDDEN patterns — DO NOT generate these tired combinations:
+    - Generic "#3b82f6 blue + white" for every SaaS
+    - Plain white background with gray sections
+    - Same hero → features → testimonials → pricing every time
+    - Identical stats: "10K Users", "99.9% Uptime" for every product
+    - Generic "Feature 1, Feature 2, Feature 3" with placeholder descriptions
 </design_rules>
 
 <available_blocks>
@@ -262,135 +372,29 @@ hero, navbar, footer, features, testimonials, pricing-table, stats, team, galler
 faq, contact-form, newsletter, logo-cloud, cta, banner, heading, text, button,
 image, divider, spacer, countdown, product-card, social-links, video,
 blog-post, blog-list, cart, checkout-form, map, booking-form, login-form,
-project-card, experience-timeline, skills-grid
+project-card, experience-timeline, skills-grid,
+process-steps, service-card, menu-grid, event-schedule, course-card, comparison-table
 </available_blocks>`;
 
 // ── PHASE 2: Coder Prompt ─────────────────────────────────────────────────────
 // Generates deeply specific, professional, industry-aware content.
 
-const CODER_SYSTEM = `<role>
-Expert UI component generator for PixelPrompt. You don't write placeholder content.
-You write REAL content — specific job titles, real-sounding project names, actual skill names,
-convincing testimonials with specific roles. Every block should look like it was made for a real person.
-</role>
+const CODER_SYSTEM = `You are a JSON block generator for PixelPrompt. Output ONLY a valid JSON array. Start with [ end with ]. No markdown, no explanation, no code fences.
 
-<task>
-Generate a JSON array of website blocks following the plan exactly.
-Return ONLY a minified JSON array starting with [ and ending with ] — nothing else.
-NO markdown, NO code fences, NO explanation.
-</task>
+BLOCK FORMAT: {"id":"8charId","type":"blockType","props":{...},"style":{"backgroundColor":"#hex","textColor":"#hex","animation":"slide-up","animationDuration":"0.8","animationDelay":"0.1"}}
 
-<block_format>
-{"id":"8charstr","type":"blockType","props":{...},"style":{"backgroundColor":"#hex","textColor":"#hex","padding":"px","borderRadius":"px","animation":"slide-up","animationDuration":"0.8","animationDelay":"0.2"}}
-</block_format>
+RULES:
+- Unique 8-char alphanumeric id per block
+- Use exact color scheme given. Dark bg = light text. NEVER same bg as text color.
+- Alternate backgroundColor between sections (never same hex twice in a row)
+- Every style needs animation (fade-in|slide-up|slide-down|slide-left|slide-right|zoom-in|bounce), animationDuration 0.5-1.0, animationDelay 0-0.5
+- NO placeholder text. Write real specific content matching the profession/business.
+- features: 3-6 items with real titles+descriptions. skills-grid: 8-12 real skills with level 0-100. project-card: exactly 3 projects with title,description,image,techStack,liveUrl("#"),repoUrl("#"). experience-timeline: 3-4 entries. stats: 3-4 credible numbers. testimonials: full name+role+company+specific outcome quote.
+- Images: use Unsplash URLs provided in the request. Pick different ones for variety.
+- footer: real columns (Company/Product/Resources/Legal) with 3-5 links each + copyright with current year.
 
-<non_negotiable_rules>
-1. UNIQUE IDs: Every block needs a unique 8-character alphanumeric id.
-2. FOLLOW THE COLOR SCHEME EXACTLY. Dark bg + light text for dark themes. NEVER white bg with white text.
-3. EVERY BLOCK must have style with backgroundColor AND textColor. Alternate section backgrounds to create visual rhythm.
-4. ANIMATIONS: Every block must have style.animation from: fade-in, slide-up, slide-down, slide-left, slide-right, zoom-in, zoom-out, flip, bounce. Set animationDuration (0.5–1.0) and animationDelay (0–0.5).
-5. NO EMPTY PROPS. Every field must have real, specific, professional content.
-6. IMAGES: Use real Unsplash URLs. Match image content to context. Examples:
-   - Developer: https://images.unsplash.com/photo-1555099962-4199c345e5dd?auto=format&fit=crop&w=800&q=80
-   - Designer: https://images.unsplash.com/photo-1561070791-2526d30994b5?auto=format&fit=crop&w=800&q=80
-   - Restaurant food: https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=800&q=80
-   - Product/store: https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=800&q=80
-   - Team/people: https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?auto=format&fit=crop&w=800&q=80
-   - Abstract/tech: https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=80
-7. SECTION COLOR RHYTHM: Alternate colors between sections (dark → slightly lighter dark → dark) for a premium layered look.
-</non_negotiable_rules>
-
-<content_standards>
-HERO:
-  - title: Specific, punchy headline. For portfolios: "Full Stack Developer Crafting Scalable Web Apps" not "Hello World"
-  - subtitle: 1-2 sentences with specific value proposition. Include tech stack or specialty if portfolio.
-  - buttonText: Action-oriented ("View My Work", "See Projects", "Shop Now", "Start Free Trial")
-
-FEATURES:
-  - title: Specific feature name matching the product/service
-  - desc: 2-3 sentences explaining the actual benefit and HOW it helps
-  - At least 3 features. For SaaS: 6 features.
-
-PROJECT-CARD (portfolios ONLY):
-  - Generate exactly 3 impressive projects
-  - title: Real-sounding project names ("TaskFlow SaaS", "NovaPay Payment Gateway", "EcoShop Marketplace")
-  - description: 2 sentences: what it does + the impact/result ("Reduced checkout time by 40%", "Serves 10k+ users")
-  - techStack: 3-5 actual technologies matching the developer's stack
-  - liveUrl, repoUrl: Use "#" — NEVER leave empty
-
-EXPERIENCE-TIMELINE:
-  - Generate 3-4 entries with progression (junior → senior or education → senior)
-  - company: Real-sounding company names ("Accenture", "Meta", "FinTech Startup", "Digital Agency XYZ")
-  - period: Consistent format "Jan 2020 – Present" or "2018 – 2022"
-  - description: 2 sentences with specific responsibilities and achievements. Include numbers where possible.
-
-SKILLS-GRID:
-  - 8-12 skills. Match the profession. DO NOT use generic "Skill 1".
-  - level: Realistic percentages. Senior skills: 85-95. Good skills: 70-85. Learning: 55-70.
-  - icon: "code" for languages/frameworks, "design" for design tools, "cloud" for AWS/GCP/Azure,
-         "data" for databases/ML, "mobile" for iOS/Android, "devops" for Docker/CI/CD
-
-TESTIMONIALS:
-  - Real-sounding names with specific roles and companies ("Sarah Chen, VP of Engineering at Stripe")
-  - Quotes mention specific outcomes and results ("increased our team velocity by 3x", "delivered ahead of schedule")
-
-STATS:
-  - Credible, impressive but believable numbers
-  - Match the field: Portfolio → "47 Projects Delivered", "5 Years Experience"
-  - SaaS → "99.9% Uptime", "10k+ Users", "$2M Revenue Saved"
-
-PRICING-TABLE:
-  - Realistic price points for the industry
-  - Free/Starter/Pro/Enterprise structure
-  - Features must be SPECIFIC to the actual product
-
-BLOG-LIST:
-  - 3 posts with industry-relevant titles, not "Blog Post 1"
-  - Proper categories matching the website's field
-
-FOOTER:
-  - Real column structure: Company, Product, Resources, Legal
-  - 3-5 links per column, all relevant
-  - Copyright with the actual current year and company/name
-</content_standards>
-
-<block_props>
-- hero: {title, subtitle, buttonText}
-- navbar: {brand, links:[{label,url}], ctaText}
-- footer: {columns:[{title,links:[string]}], copyright}
-- features: {features:[{title,desc}]}
-- testimonials: {testimonials:[{name,role,quote}]}
-- pricing-table: {plans:[{name,price,features:[string],highlighted:boolean}]}
-- stats: {stats:[{value,label}]}
-- team: {members:[{name,role,bio,image}]}
-- gallery: {images:[{src,alt}]}
-- faq: {title,items:[{question,answer}]}
-- contact-form: {title,subtitle,buttonText}
-- newsletter: {title,subtitle,buttonText}
-- logo-cloud: {title,logos:[string]}
-- cta: {title,subtitle,primaryButton,secondaryButton}
-- banner: {text,variant:"info"|"warning"|"error"}
-- heading: {text,align:"left"|"center"|"right"}
-- text: {text,align:"left"|"center"|"right"}
-- button: {text,url,align:"left"|"center"|"right"}
-- image: {src,alt,height}
-- divider: {}
-- spacer: {height}
-- countdown: {title,subtitle,targetDate}
-- product-card: {products:[{name,price,description,image}]}
-- social-links: {links:[{platform,url}]}
-- video: {url,height}
-- blog-post: {title,excerpt,author,date,category,image}
-- blog-list: {title,posts:[{title,excerpt,author,date,category}]}
-- cart: {items:[{name,price,quantity}],showCheckout:boolean}
-- checkout-form: {title,subtitle,buttonText}
-- map: {address,zoom,height}
-- booking-form: {title,subtitle,buttonText,services:[string]}
-- login-form: {title,subtitle,buttonText,showSignup:boolean}
-- project-card: {title,projects:[{title,description,image,techStack:[string],liveUrl,repoUrl}]}
-- experience-timeline: {title,items:[{title,company,period,description}]}
-- skills-grid: {title,skills:[{name,level,icon:"code"|"design"|"cloud"|"data"|"mobile"|"devops"}]}
-</block_props>`;
+PROPS REFERENCE:
+hero:{title,subtitle,buttonText,backgroundImage?}|navbar:{brand,links:[{label,url}],ctaText?}|footer:{columns:[{title,links:[string]}],copyright}|features:{features:[{title,desc,icon?}]}|testimonials:{testimonials:[{name,role,quote,rating?}]}|pricing-table:{plans:[{name,price,features:[string],highlighted:boolean}]}|stats:{stats:[{value,label}]}|team:{members:[{name,role,bio,image}]}|gallery:{images:[{src,alt}]}|faq:{title,items:[{question,answer}]}|contact-form:{title,subtitle,buttonText}|newsletter:{title,subtitle,buttonText}|logo-cloud:{title,logos:[string]}|cta:{title,subtitle,primaryButton,secondaryButton}|countdown:{title,subtitle,targetDate}|product-card:{products:[{name,price,description,image,badge?}]}|social-links:{links:[{platform,url}]}|blog-list:{title,posts:[{title,excerpt,author,date,category}]}|map:{address,zoom,height}|booking-form:{title,subtitle,buttonText,services:[string]}|project-card:{title,projects:[{title,description,image,techStack:[string],liveUrl,repoUrl}]}|experience-timeline:{title,items:[{title,company,period,description}]}|skills-grid:{title,skills:[{name,level,icon:"code"|"design"|"cloud"|"data"|"mobile"|"devops"}]}|process-steps:{title,steps:[{stepNumber,title,description}]}|service-card:{title,services:[{icon,title,description,price?}]}|menu-grid:{title,categories:[{name,items:[{name,price,description}]}]}|event-schedule:{title,days:[{date,slots:[{time,title,speaker,description}]}]}|course-card:{title,courses:[{title,instructor,rating,students,price,image,category}]}|comparison-table:{title,features:[string],plans:[{name,values:[string|boolean]}]}`;
 
 // ── PHASE 3: Reviewer Prompt ──────────────────────────────────────────────────
 // Deep quality pass — catches everything the Coder might have missed.
@@ -415,12 +419,14 @@ STRUCTURAL CHECKS:
 ✓ page starts with a visual section (hero or image or gallery) — not a form
 
 CONTENT QUALITY:
-✓ No placeholder text: "Feature 1", "Lorem ipsum", "Company A", "Your Title", "Skill 1" etc.
+✓ No placeholder text: "Feature 1", "Lorem ipsum", "Company A", "Your Title", "Skill 1", "New Feature", "Description" etc.
   → Replace with specific, realistic, professional content matching the website type
 ✓ Hero title must be specific and compelling — not generic
 ✓ All testimonials must have full names + specific roles + convincing quotes with outcomes
 ✓ All stats must be credible and impressive for the industry
 ✓ Footer copyright must include a real year (2025) and company/person name
+✓ Features must have descriptive titles and 2+ sentence descriptions, not just "Description"
+✓ Newsletter/CTA blocks must have compelling, specific titles — not "Stay Updated" or "Get Started"
 
 PORTFOLIO BLOCKS (if present):
 ✓ project-card.projects must be an array of 3 items with all fields filled
@@ -429,6 +435,21 @@ PORTFOLIO BLOCKS (if present):
 ✓ experience-timeline.items must have 3+ entries with specific companies and periods
 ✓ skills-grid.skills must have 8+ entries, all with level (0-100) and valid icon type
   → icon must be one of: "code", "design", "cloud", "data", "mobile", "devops"
+
+EVENT BLOCKS (if countdown present):
+✓ countdown must have a targetDate in YYYY-MM-DD format (use a future date)
+✓ team members should be labelled as "speakers" with talk topics in bio
+✓ pricing-table plans should be ticket tiers (Early Bird, Regular, VIP)
+
+EDUCATION BLOCKS (if present):
+✓ features should describe course benefits or highlights
+✓ stats should include student count, course count, satisfaction rate
+✓ testimonials should be from students with specific outcomes
+
+PERSONAL/RESUME BLOCKS (if present):
+✓ skills-grid must have 8+ skills with realistic levels
+✓ experience-timeline must have 3+ entries with career progression
+✓ project-card must show 3 projects with specific descriptions
 
 VISUAL QUALITY:
 ✓ Every block has backgroundColor AND textColor in style
@@ -656,59 +677,74 @@ The page narrative should be: "${discovery?.pageNarrative || "engage → inform 
   let rawBlocks: ValidBlock[] = [];
 
   try {
-    const personalization = discovery
-      ? `\n<personalization>
+    const totalBlocks = plan.blocks.length;
+    const batchSize = 3; // Generate 3 blocks at a time to prevent truncation/memory issues
+    const batches = Math.ceil(totalBlocks / batchSize);
+
+    for (let b = 0; b < batches; b++) {
+      const start = b * batchSize;
+      const end = Math.min(start + batchSize, totalBlocks);
+      const currentBlocks = plan.blocks.slice(start, end);
+
+      emit({
+        type: "log",
+        message: `⚡ Generating batch ${b + 1}/${batches} (${currentBlocks.join(", ")})...`
+      });
+
+      const personalization = discovery
+        ? `\n<personalization>
 Person: ${discovery.profession}${discovery.personalization ? ` — ${discovery.personalization}` : ""}
 Audience: ${discovery.targetAudience}
 Content tone: ${discovery.contentTone}
 Generate content that is authentic, specific, and tailored to this exact profile. No generic placeholders.
 </personalization>`
-      : "";
+        : "";
 
-    const coderMsg = `<plan>
+      const historyCtx = rawBlocks.length > 0
+        ? `\n<blocks_already_generated_in_this_session>
+${JSON.stringify(rawBlocks.map(rb => ({ type: rb.type, props: rb.props })))}
+</blocks_already_generated_in_this_session>`
+        : "";
+
+      const imageUrls = getContextualImages(discovery?.websiteType ?? "landing", discovery?.subType ?? "");
+
+      const coderMsg = `<plan>
 <intent>${plan.intent}</intent>
 <style>${plan.style}</style>
 <color_scheme>${JSON.stringify(plan.colorScheme)}</color_scheme>
-<blocks_in_order>${plan.blocks.join(", ")}</blocks_in_order>
 </plan>
 ${personalization}
-<user_request>${prompt}</user_request>
+${historyCtx}
+<images_to_use>
+${imageUrls}
+</images_to_use>
 
-Generate the complete blocks JSON array for these block types in EXACTLY this order: ${plan.blocks.join(", ")}
+Generate ONLY these ${currentBlocks.length} block(s) as a JSON array: ${currentBlocks.join(", ")}
+Return [ ... ] only. No text before or after.`;
 
-Remember: Every piece of text, every number, every name must feel REAL and SPECIFIC to this exact website.`;
+      const { content: raw, providerName, model } = await callWithFallbackValidated(
+        "coder",
+        [
+          { role: "system", content: CODER_SYSTEM },
+          { role: "user", content: coderMsg },
+        ],
+        { temperature: 0.7, maxTokens: 12288, topP: 0.95 },
+        (content) => (extractBlocks(content) ?? []).length > 0
+      );
 
-    const { content: raw, providerName, model } = await callWithFallback(
-      "coder",
-      [
-        { role: "system", content: CODER_SYSTEM },
-        { role: "user", content: coderMsg },
-      ],
-      { temperature: 0.65, maxTokens: 8192, topP: 0.95 }
-    );
+      codeTask.providerName = providerName;
+      codeTask.model = model;
 
-    codeTask.providerName = providerName;
-    codeTask.model = model;
+      const parsed = extractBlocks(raw);
+      if (!parsed || parsed.length === 0) throw new Error(`Batch ${b + 1} failed: No blocks found.`);
+      const validBatch = parsed
+        .filter((bl) => bl !== null && VALID_TYPES.has(bl.type))
+        .slice(0, currentBlocks.length);
 
-    const jsonStr = extractJSON(raw, "[");
-    if (!jsonStr) {
-      console.error("CODER RAW (first 2000 chars):", raw.slice(0, 2000));
-      throw new Error("Coder response contained no JSON array");
+      rawBlocks.push(...ensureUniqueIds(validBatch));
     }
 
-    const parsed = JSON.parse(jsonStr) as unknown[];
-    rawBlocks = parsed.filter(
-      (b): b is ValidBlock =>
-        b !== null &&
-        typeof b === "object" &&
-        "type" in b &&
-        typeof (b as any).type === "string" &&
-        VALID_TYPES.has((b as any).type)
-    );
-
-    if (rawBlocks.length === 0) throw new Error("No valid blocks in coder response");
-
-    rawBlocks = ensureUniqueIds(rawBlocks);
+    if (rawBlocks.length === 0) throw new Error("No valid blocks generated.");
 
     codeTask.status = "done";
     codeTask.result = { blockCount: rawBlocks.length };
@@ -716,15 +752,20 @@ Remember: Every piece of text, every number, every name must feel REAL and SPECI
     emit({
       type: "phase_end",
       phase: "code",
-      message: `✅ ${rawBlocks.length} blocks generated (${providerName} ${model})`,
+      message: `✅ ${rawBlocks.length} blocks generated successfully`,
     });
     emit({ type: "task_update", task: codeTask });
   } catch (err: any) {
     codeTask.status = "failed";
     codeTask.error = err.message;
     emit({ type: "task_update", task: codeTask });
-    emit({ type: "error", message: `❌ Coder failed: ${err.message}`, fatal: true });
-    throw err;
+    emit({ type: "log", message: `⚠️ AI coder unavailable (${err.message}), using structured fallback...` });
+    // TypeScript fallback: build a complete, styled page without AI
+    rawBlocks = generateFallbackBlocks(plan, discovery);
+    codeTask.status = "done";
+    codeTask.result = { blockCount: rawBlocks.length, fallback: true };
+    emit({ type: "phase_end", phase: "code", message: `✅ ${rawBlocks.length} blocks generated (fallback mode)` });
+    emit({ type: "task_update", task: codeTask });
   }
 
   // ── Phase 3: Reviewer ─────────────────────────────────────────────────────
@@ -902,6 +943,127 @@ export function buildPortfolioBlocksFromCV(parsed: Record<string, unknown>): Val
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// ── Unsplash image library (injected per-request, not in system prompt) ────────
+
+const UNSPLASH: Record<string, string[]> = {
+  portfolio:  ["photo-1555099962-4199c345e5dd","photo-1461749280684-dccba630e2f6","photo-1498050108023-c5249f4df085","photo-1504639725590-34d0984388bd"],
+  design:     ["photo-1561070791-2526d30994b5","photo-1626785774573-4b799315345d","photo-1558618666-fcd25c85cd64","photo-1572044162444-ad60f128bdea"],
+  restaurant: ["photo-1546069901-ba9599a7e63c","photo-1504674900247-0877df9cc836","photo-1555939594-58d7cb561ad1","photo-1565299624946-b28f40a0ae38"],
+  ecommerce:  ["photo-1523275335684-37898b6baf30","photo-1491553895911-0055eca6402d","photo-1585386959984-a4155224a1ad","photo-1542291026-7eec264c27ff"],
+  team:       ["photo-1573497019940-1c28c88b4f3e","photo-1560250097-0b93528c311a","photo-1507003211169-0a1dd7228f2d","photo-1494790108377-be9c29b29330"],
+  tech:       ["photo-1518770660439-4636190af475","photo-1550751827-4bd374c3f58b","photo-1526374965328-7f61d4dc18c5","photo-1581090700227-1e37b190418e"],
+  event:      ["photo-1540575467063-178a50c2df87","photo-1505373877841-8d25f7d46678","photo-1587825140708-dfaf72ae4b04"],
+  education:  ["photo-1524178232363-1fb2b075b655","photo-1427504494785-3a9ca7044f45","photo-1456513080510-7bf3a84b82f8"],
+  fitness:    ["photo-1534438327276-14e5300c3a48","photo-1517836357463-d25dfeac3438","photo-1571019613454-1cb2f99b2d8b"],
+  medical:    ["photo-1576091160550-2173dba999ef","photo-1559757175-7cb057fba93c","photo-1505751172876-fa1923c5c528"],
+  realestate: ["photo-1564013799919-ab600027ffc6","photo-1560518883-ce09059eeffa","photo-1600596542815-ffad4c1539a9"],
+  nature:     ["photo-1441974231531-c6227db76b6e","photo-1506905925346-21bda4d32df4","photo-1469474968028-56623f02e42e"],
+  office:     ["photo-1497366216548-37526070297c","photo-1497366754035-f200968a6e72","photo-1486406146926-c627a92ad1ab"],
+  photo:      ["photo-1452587925148-ce544e77e70d","photo-1617196034183-421b4040ed20","photo-1502982720700-bfff97f2ecac"],
+  music:      ["photo-1511671782779-c97d3d27a1d4","photo-1493225457124-a3eb161ffa5f"],
+  travel:     ["photo-1488085061387-422e29b40080","photo-1530789253388-582c481c54b0"],
+  dark:       ["photo-1451187580459-43490279c0fa","photo-1534796636912-3b95b3ab5986","photo-1419242902214-272b3f66ee7a","photo-1478760329108-5c3ed9d495a0"],
+};
+
+function getContextualImages(type: string, subType = ""): string {
+  const key = ((): keyof typeof UNSPLASH => {
+    if (type === "portfolio") return subType.includes("photo") ? "photo" : "portfolio";
+    if (type === "restaurant") return "restaurant";
+    if (type === "ecommerce") return "ecommerce";
+    if (type === "event") return "event";
+    if (type === "education") return "education";
+    if (type === "saas" || type === "landing") return "tech";
+    if (type === "agency") return "office";
+    if (subType.includes("fitness") || subType.includes("gym")) return "fitness";
+    if (subType.includes("medical") || subType.includes("health")) return "medical";
+    if (subType.includes("real") || subType.includes("estate")) return "realestate";
+    return "office";
+  })();
+  const imgs = [...(UNSPLASH[key] ?? UNSPLASH.office), ...UNSPLASH.dark];
+  return imgs.map(id => `https://images.unsplash.com/${id}?auto=format&fit=crop&w=800&q=80`).join("\n");
+}
+
+// ── TypeScript fallback block generator ───────────────────────────────────────
+// Called when ALL AI providers fail. Produces a complete, styled page so users
+// never see a blank error — they always get a usable website.
+
+function generateFallbackBlocks(plan: PlanResult, discovery: DiscoveryResult | null): ValidBlock[] {
+  const cs = plan.colorScheme;
+  const prof = discovery?.profession || "Professional";
+  const type = discovery?.websiteType || "landing";
+  const animations = ["fade-in", "slide-up", "zoom-in", "slide-left", "slide-right"];
+  let animIdx = 0;
+  const anim = () => ({ animation: animations[animIdx++ % animations.length], animationDuration: "0.8", animationDelay: String(((animIdx % 5) * 0.1).toFixed(1)) });
+
+  const blocks: ValidBlock[] = [];
+  const bgCycle = [cs.background, cs.secondary, cs.background, cs.secondary];
+  let bgIdx = 0;
+  const bg = () => bgCycle[bgIdx++ % bgCycle.length];
+
+  for (const blockType of plan.blocks) {
+    const id = nanoid(8);
+    const style = { backgroundColor: bg(), textColor: cs.text, ...anim() };
+
+    switch (blockType) {
+      case "navbar":
+        blocks.push({ id, type: "navbar", props: { brand: prof, links: [{ label: "About", url: "#about" }, { label: "Work", url: "#work" }, { label: "Contact", url: "#contact" }] }, style: { ...style, backgroundColor: cs.background } });
+        break;
+      case "hero":
+        blocks.push({ id, type: "hero", props: { title: `${prof} — Building What Matters`, subtitle: `Professional ${type} services delivering real results. Let's work together.`, buttonText: type === "portfolio" ? "View My Work" : "Get Started" }, style: { ...style, backgroundColor: cs.primary } });
+        break;
+      case "features":
+        blocks.push({ id, type: "features", props: { features: [{ title: "Expert Delivery", desc: "Professional-grade work delivered on time, every time. Quality you can rely on." }, { title: "Proven Results", desc: "Track record of measurable outcomes that move the needle for clients." }, { title: "Full Support", desc: "Dedicated support throughout the project and beyond launch." }] }, style });
+        break;
+      case "stats":
+        blocks.push({ id, type: "stats", props: { stats: [{ value: "50+", label: "Projects Completed" }, { value: "5 yrs", label: "Experience" }, { value: "98%", label: "Client Satisfaction" }, { value: "24h", label: "Response Time" }] }, style: { ...style, backgroundColor: cs.accent ?? cs.primary } });
+        break;
+      case "testimonials":
+        blocks.push({ id, type: "testimonials", props: { testimonials: [{ name: "Alex Rivera", role: "CEO, TechCorp", quote: "Outstanding work — delivered ahead of schedule and exceeded our expectations.", rating: 5 }, { name: "Sam Chen", role: "Founder, StartupXYZ", quote: "Highly skilled and professional. Would recommend without hesitation.", rating: 5 }] }, style });
+        break;
+      case "skills-grid":
+        blocks.push({ id, type: "skills-grid", props: { title: "Skills & Expertise", skills: [{ name: "JavaScript", level: 90, icon: "code" }, { name: "TypeScript", level: 85, icon: "code" }, { name: "React", level: 88, icon: "code" }, { name: "Node.js", level: 82, icon: "code" }, { name: "PostgreSQL", level: 78, icon: "data" }, { name: "AWS", level: 72, icon: "cloud" }, { name: "Docker", level: 75, icon: "devops" }, { name: "Figma", level: 70, icon: "design" }] }, style });
+        break;
+      case "project-card":
+        blocks.push({ id, type: "project-card", props: { title: "Featured Projects", projects: [{ title: "SaaS Dashboard", description: "Full-stack analytics platform serving 5,000+ users. Reduced reporting time by 60%.", image: `https://images.unsplash.com/photo-1555099962-4199c345e5dd?auto=format&fit=crop&w=800&q=80`, techStack: ["React", "Node.js", "PostgreSQL"], liveUrl: "#", repoUrl: "#" }, { title: "E-Commerce Platform", description: "Scalable online store with payment integration. Processed $500K in first year.", image: `https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=800&q=80`, techStack: ["Next.js", "Stripe", "MongoDB"], liveUrl: "#", repoUrl: "#" }, { title: "Mobile App", description: "Cross-platform app with 10K+ downloads and 4.8-star rating on App Store.", image: `https://images.unsplash.com/photo-1461749280684-dccba630e2f6?auto=format&fit=crop&w=800&q=80`, techStack: ["React Native", "Firebase", "TypeScript"], liveUrl: "#", repoUrl: "#" }] }, style });
+        break;
+      case "experience-timeline":
+        blocks.push({ id, type: "experience-timeline", props: { title: "Work Experience", items: [{ title: "Senior Software Engineer", company: "Tech Company", period: "2022 – Present", description: "Led development of core platform features. Improved system performance by 40%." }, { title: "Software Engineer", company: "Digital Agency", period: "2020 – 2022", description: "Built client-facing web applications for 20+ enterprise clients." }, { title: "Junior Developer", company: "StartupXYZ", period: "2018 – 2020", description: "Developed REST APIs and frontend components for the main product." }] }, style });
+        break;
+      case "pricing-table":
+        blocks.push({ id, type: "pricing-table", props: { plans: [{ name: "Starter", price: "$29/mo", features: ["5 projects", "Basic analytics", "Email support"], highlighted: false }, { name: "Pro", price: "$79/mo", features: ["Unlimited projects", "Advanced analytics", "Priority support", "Custom domain"], highlighted: true }, { name: "Enterprise", price: "Custom", features: ["Everything in Pro", "SLA guarantee", "Dedicated manager", "Custom integrations"], highlighted: false }] }, style });
+        break;
+      case "faq":
+        blocks.push({ id, type: "faq", props: { title: "Frequently Asked Questions", items: [{ question: "How long does a typical project take?", answer: "Most projects are completed within 2-4 weeks depending on scope and complexity." }, { question: "Do you offer revisions?", answer: "Yes, we include up to 3 rounds of revisions in every project." }, { question: "What is your payment process?", answer: "We require 50% upfront and 50% on project completion." }] }, style });
+        break;
+      case "contact-form":
+        blocks.push({ id, type: "contact-form", props: { title: "Get In Touch", subtitle: "Ready to start your project? Let's talk.", buttonText: "Send Message" }, style });
+        break;
+      case "cta":
+        blocks.push({ id, type: "cta", props: { title: "Ready to Get Started?", subtitle: "Join hundreds of satisfied clients. Let's build something great together.", primaryButton: "Start Your Project", secondaryButton: "View Portfolio" }, style: { ...style, backgroundColor: cs.primary } });
+        break;
+      case "newsletter":
+        blocks.push({ id, type: "newsletter", props: { title: "Stay in the Loop", subtitle: "Get tips, updates, and insights delivered to your inbox. No spam.", buttonText: "Subscribe" }, style });
+        break;
+      case "footer":
+        blocks.push({ id, type: "footer", props: { columns: [{ title: "Company", links: ["About", "Services", "Portfolio", "Contact"] }, { title: "Services", links: ["Web Development", "Mobile Apps", "Consulting", "Support"] }, { title: "Resources", links: ["Blog", "Case Studies", "Documentation", "FAQ"] }], copyright: `© ${new Date().getFullYear()} ${prof}. All rights reserved.` }, style: { ...style, backgroundColor: "#0c0c0c", textColor: "#e5e7eb" } });
+        break;
+      default:
+        // Skip unknown block types in fallback
+        break;
+    }
+  }
+
+  // Guarantee at least a hero + footer
+  if (!blocks.find(b => b.type === "hero")) {
+    blocks.unshift({ id: nanoid(8), type: "hero", props: { title: `Welcome to ${prof}`, subtitle: "Professional services delivered with excellence.", buttonText: "Learn More" }, style: { backgroundColor: cs.primary, textColor: cs.text, animation: "fade-in", animationDuration: "0.8", animationDelay: "0" } });
+  }
+  if (!blocks.find(b => b.type === "footer")) {
+    blocks.push({ id: nanoid(8), type: "footer", props: { columns: [{ title: "Links", links: ["Home", "About", "Contact"] }], copyright: `© ${new Date().getFullYear()} ${prof}` }, style: { backgroundColor: "#0c0c0c", textColor: "#e5e7eb", animation: "fade-in", animationDuration: "0.5", animationDelay: "0" } });
+  }
+
+  return ensureUniqueIds(blocks.filter(b => VALID_TYPES.has(b.type)));
+}
+
 function buildDiscoveryContext(d: DiscoveryResult): string {
   return `<discovery_analysis>
 <website_type>${d.websiteType}${d.subType ? ` / ${d.subType}` : ""}</website_type>
@@ -919,27 +1081,137 @@ function buildDiscoveryContext(d: DiscoveryResult): string {
 </discovery_analysis>`;
 }
 
+/** Attempts to repair common JSON issues from AI responses (trailing commas, truncation). */
+function repairJSON(text: string): string {
+  // Strip markdown code fences
+  let s = text.replace(/```(?:json)?\s*/gi, "").replace(/```\s*/g, "").trim();
+  // Remove trailing commas before closing brackets
+  s = s.replace(/,\s*([}\]])/g, "$1");
+  // If the JSON is truncated (no closing bracket), close open objects/arrays
+  const opens = (s.match(/\{/g) || []).length - (s.match(/\}/g) || []).length;
+  const openArr = (s.match(/\[/g) || []).length - (s.match(/\]/g) || []).length;
+  // Remove incomplete last element (ends mid-string or mid-object)
+  s = s.replace(/,?\s*\{[^}]*$/, "").replace(/,?\s*"[^"]*$/, "");
+  for (let i = 0; i < Math.max(0, opens); i++) s += "}";
+  for (let i = 0; i < Math.max(0, openArr); i++) s += "]";
+  return s;
+}
+
 function extractJSON(text: string, startChar: "{" | "["): string | null {
   const endChar = startChar === "{" ? "}" : "]";
-  const start = text.indexOf(startChar);
-  if (start === -1) return null;
+  // Strip markdown code fences first
+  const cleaned = text.replace(/```(?:json)?\s*/gi, "").replace(/```\s*/g, "");
+  let pos = -1;
 
-  let depth = 0;
-  let inString = false;
-  let escape = false;
+  // Try finding multiple starting points in case earlier ones are decoys
+  while ((pos = cleaned.indexOf(startChar, pos + 1)) !== -1) {
+    let depth = 0;
+    let inString = false;
+    let escape = false;
 
-  for (let i = start; i < text.length; i++) {
-    const ch = text[i];
-    if (escape) { escape = false; continue; }
-    if (ch === "\\") { escape = true; continue; }
-    if (ch === '"') { inString = !inString; continue; }
-    if (inString) continue;
-    if (ch === startChar) depth++;
-    else if (ch === endChar) {
-      depth--;
-      if (depth === 0) return text.slice(start, i + 1);
+    for (let i = pos; i < cleaned.length; i++) {
+       const ch = cleaned[i];
+       if (escape) { escape = false; continue; }
+       if (ch === "\\") { escape = true; continue; }
+       if (ch === '"') { inString = !inString; continue; }
+       if (inString) continue;
+
+       if (ch === startChar) depth++;
+       else if (ch === endChar) {
+         depth--;
+         if (depth === 0) {
+           const candidate = cleaned.slice(pos, i + 1);
+           try {
+             JSON.parse(candidate);
+             return candidate;
+           } catch {
+             // Not valid JSON, keep searching for another starting point
+             break;
+           }
+         }
+       }
     }
   }
+
+  // Repair fallback: try to fix common truncation/syntax issues
+  const lastStart = cleaned.lastIndexOf(startChar);
+  if (lastStart !== -1) {
+    const repaired = repairJSON(cleaned.slice(lastStart));
+    try {
+      JSON.parse(repaired);
+      return repaired;
+    } catch { /* Fail */ }
+  }
+
+  return null;
+}
+
+/**
+ * Extracts blocks from any AI response format:
+ * - Proper JSON array: [{...}, {...}]
+ * - Single JSON object: {...} → wrapped in [...]
+ * - Wrapper object: {"blocks": [...]} → inner array extracted
+ * - Multiple separate objects scattered in text → collected into [...]
+ * This is the last line of defense against format non-compliance.
+ */
+function extractBlocks(text: string): ValidBlock[] | null {
+  const cleaned = text.replace(/```(?:json)?\s*/gi, "").replace(/```\s*/g, "").trim();
+
+  // Strategy 1: top-level JSON array
+  const arrStr = extractJSON(cleaned, "[");
+  if (arrStr) {
+    try {
+      const parsed = JSON.parse(arrStr);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed as ValidBlock[];
+    } catch { /* fall through */ }
+  }
+
+  // Strategy 2: single or wrapper JSON object
+  const objStr = extractJSON(cleaned, "{");
+  if (objStr) {
+    try {
+      const parsed = JSON.parse(objStr) as Record<string, unknown>;
+      // Direct block object
+      if (typeof parsed.type === "string" && VALID_TYPES.has(parsed.type)) {
+        return [parsed] as ValidBlock[];
+      }
+      // Wrapper: { blocks: [...] } or { data: [...] } etc.
+      for (const val of Object.values(parsed)) {
+        if (Array.isArray(val) && val.length > 0 &&
+            val[0] && typeof val[0] === "object" &&
+            typeof (val[0] as Record<string, unknown>).type === "string") {
+          return val as ValidBlock[];
+        }
+      }
+    } catch { /* fall through */ }
+  }
+
+  // Strategy 3: collect every top-level {…} that looks like a block
+  const blocks: ValidBlock[] = [];
+  let pos = 0;
+  while ((pos = cleaned.indexOf("{", pos)) !== -1) {
+    let depth = 0; let inStr = false; let esc = false; let end = -1;
+    for (let i = pos; i < cleaned.length; i++) {
+      const c = cleaned[i];
+      if (esc) { esc = false; continue; }
+      if (c === "\\") { esc = true; continue; }
+      if (c === '"') { inStr = !inStr; continue; }
+      if (inStr) continue;
+      if (c === "{") depth++;
+      else if (c === "}") { depth--; if (depth === 0) { end = i; break; } }
+    }
+    if (end === -1) break;
+    const candidate = cleaned.slice(pos, end + 1);
+    try {
+      const obj = JSON.parse(candidate) as Record<string, unknown>;
+      if (typeof obj.type === "string" && VALID_TYPES.has(obj.type)) {
+        blocks.push(obj as ValidBlock);
+      }
+    } catch { /* skip invalid */ }
+    pos = end + 1;
+  }
+  if (blocks.length > 0) return blocks;
+
   return null;
 }
 
@@ -966,6 +1238,9 @@ function defaultColorScheme(type?: string): PlanResult["colorScheme"] {
     restaurant: { primary: "#d97706", secondary: "#b45309", background: "#1c1917", text: "#fafaf9", accent: "#fbbf24" },
     agency:     { primary: "#ec4899", secondary: "#db2777", background: "#09090b", text: "#fafafa", accent: "#f9a8d4" },
     landing:    { primary: "#3b82f6", secondary: "#1d4ed8", background: "#0f172a", text: "#f1f5f9", accent: "#60a5fa" },
+    event:      { primary: "#f97316", secondary: "#c2410c", background: "#0f172a", text: "#f9fafb", accent: "#fdba74" },
+    education:  { primary: "#0ea5e9", secondary: "#0284c7", background: "#f0f9ff", text: "#0c4a6e", accent: "#38bdf8" },
+    personal:   { primary: "#14b8a6", secondary: "#0d9488", background: "#09090b", text: "#fafafa", accent: "#5eead4" },
   };
   return schemes[type || ""] || schemes.landing;
 }
@@ -994,33 +1269,75 @@ function buildFallbackPlan(prompt: string, discovery?: DiscoveryResult | null): 
   // Keyword-based fallback
   const isPortfolio = /portfolio|freelance|designer|developer|photographer|creative|resume/.test(lower);
   const isEcommerce = /shop|store|product|ecommerce|cart/.test(lower);
-  const isRestaurant = /restaurant|food|cafe|menu|dining/.test(lower);
+  const isRestaurant = /restaurant|food|cafe|menu|dining|bakery|pizza|sushi|bar\b/.test(lower);
   const isSaas = /saas|software|app|startup|platform|tool/.test(lower);
   const isBlog = /blog|article|news|magazine/.test(lower);
+  const isEvent = /event|conference|summit|meetup|workshop|hackathon|webinar|concert|festival/.test(lower);
+  const isEducation = /education|course|learning|school|university|academy|tutorial|training|teach/.test(lower);
+  const isPersonal = /personal|resume|cv|about me|my website|individual/.test(lower);
+  const isAgency = /agency|studio|firm|consultancy|digital agency/.test(lower);
+  const isFitness = /fitness|gym|workout|trainer|yoga|pilates|crossfit/.test(lower);
+  const isMedical = /medical|doctor|clinic|hospital|health|dental|therapy|wellness/.test(lower);
 
   if (isPortfolio) return {
     intent: `Build a professional portfolio website`,
     style: "modern dark with purple gradients, glassmorphism cards, and smooth animations",
-    blocks: ["navbar", "hero", "skills-grid", "project-card", "experience-timeline", "testimonials", "contact-form", "footer"],
+    blocks: ["navbar", "hero", "skills-grid", "project-card", "experience-timeline", "testimonials", "contact-form", "social-links", "footer"],
     colorScheme: defaultColorScheme("portfolio"),
   };
   if (isEcommerce) return {
     intent: `Build a conversion-optimized ecommerce store`,
     style: "vibrant with high-contrast orange, warm tones, and clean product layout",
-    blocks: ["navbar", "hero", "banner", "product-card", "features", "testimonials", "newsletter", "footer"],
+    blocks: ["navbar", "hero", "banner", "product-card", "features", "testimonials", "stats", "newsletter", "footer"],
     colorScheme: defaultColorScheme("ecommerce"),
   };
   if (isRestaurant) return {
     intent: `Build an appetizing restaurant website`,
     style: "warm amber tones, food photography emphasis, inviting and welcoming",
-    blocks: ["navbar", "hero", "features", "gallery", "stats", "testimonials", "map", "contact-form", "footer"],
+    blocks: ["navbar", "hero", "features", "gallery", "menu-grid", "stats", "testimonials", "map", "booking-form", "footer"],
     colorScheme: defaultColorScheme("restaurant"),
   };
   if (isSaas) return {
     intent: `Build a SaaS product landing page`,
     style: "clean dark with electric blue/indigo accents, trustworthy and modern",
-    blocks: ["navbar", "hero", "logo-cloud", "features", "pricing-table", "testimonials", "faq", "cta", "footer"],
+    blocks: ["navbar", "hero", "logo-cloud", "features", "process-steps", "stats", "pricing-table", "comparison-table", "testimonials", "faq", "cta", "footer"],
     colorScheme: defaultColorScheme("saas"),
+  };
+  if (isEvent) return {
+    intent: `Build an engaging event/conference landing page`,
+    style: "bold energetic with orange and deep purple, dynamic and urgent",
+    blocks: ["navbar", "hero", "countdown", "features", "event-schedule", "team", "pricing-table", "stats", "testimonials", "booking-form", "footer"],
+    colorScheme: defaultColorScheme("event"),
+  };
+  if (isEducation) return {
+    intent: `Build an education/course platform website`,
+    style: "clean approachable sky-blue/teal, educational and trustworthy",
+    blocks: ["navbar", "hero", "features", "course-card", "stats", "testimonials", "pricing-table", "cta", "newsletter", "footer"],
+    colorScheme: defaultColorScheme("education"),
+  };
+  if (isPersonal) return {
+    intent: `Build a personal website / online resume`,
+    style: "dark sleek with teal accent, professional but memorable",
+    blocks: ["navbar", "hero", "skills-grid", "project-card", "experience-timeline", "stats", "contact-form", "social-links", "footer"],
+    colorScheme: defaultColorScheme("personal"),
+  };
+  if (isAgency) return {
+    intent: `Build a creative agency landing page`,
+    style: "bold confident with magenta/purple, modern dark or stark white",
+    blocks: ["navbar", "hero", "logo-cloud", "service-card", "process-steps", "team", "stats", "testimonials", "cta", "footer"],
+    colorScheme: defaultColorScheme("agency"),
+  };
+  if (isFitness) return {
+    intent: `Build a bold fitness/gym website`,
+    style: "bold dark with neon red/green accents, energetic and powerful",
+    blocks: ["navbar", "hero", "features", "pricing-table", "team", "gallery", "stats", "testimonials", "booking-form", "footer"],
+    colorScheme: { primary: "#ef4444", secondary: "#dc2626", background: "#09090b", text: "#fafafa", accent: "#10b981" },
+  };
+  if (isMedical) return {
+    intent: `Build a trustworthy medical/health website`,
+    style: "clean calming blue-green, professional and reassuring",
+    blocks: ["navbar", "hero", "features", "team", "stats", "testimonials", "booking-form", "map", "footer"],
+    colorScheme: { primary: "#0d9488", secondary: "#0f766e", background: "#f0fdfa", text: "#134e4a", accent: "#14b8a6" },
   };
   if (isBlog) return {
     intent: `Build a blog or content website`,

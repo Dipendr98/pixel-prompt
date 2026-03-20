@@ -7,6 +7,7 @@ import type { Project, ProjectData } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -17,7 +18,7 @@ import {
 import {
   Plus, Layers, MoreVertical, Pencil, Trash2, CreditCard, LifeBuoy, Send, ShieldCheck,
   Loader2, FolderOpen, ShoppingBag, Rocket, Briefcase, UtensilsCrossed, Building2,
-  BookOpen, Calendar, GraduationCap, User, FileText, Sparkles,
+  BookOpen, Calendar, GraduationCap, User, FileText, Sparkles, Zap, Crown,
 } from "lucide-react";
 
 // ---- Multi-page Templates ----
@@ -103,7 +104,8 @@ const TEMPLATES: {
               { id: "s1", type: "navbar", props: { brand: "AppName", links: [{ label: "Features", url: "#" }, { label: "Pricing", url: "/pricing" }, { label: "Blog", url: "/blog" }, { label: "Contact", url: "/contact" }], ctaText: "Start Free" } },
               { id: "s2", type: "hero", props: { title: "The Modern Tool for Modern Teams", subtitle: "Streamline your workflow and boost productivity with our all-in-one platform", buttonText: "Start Free Trial" } },
               { id: "s3", type: "logo-cloud", props: { title: "Trusted by 10,000+ companies", logos: ["Acme Corp", "TechStart", "CloudBase", "DataFlow", "NetScale"] } },
-              { id: "s4", type: "features", props: { features: [{ title: "Fast & Reliable", desc: "99.9% uptime guarantee" }, { title: "Secure by Default", desc: "Enterprise-grade security" }, { title: "Easy Integration", desc: "Connect with 100+ tools" }] } },
+              { id: "s4", type: "features", props: { features: [{ title: "Fast & Reliable", desc: "99.9% uptime guarantee with global CDN" }, { title: "Secure by Default", desc: "Enterprise-grade encryption and SOC 2 compliance" }, { title: "Easy Integration", desc: "Connect with 100+ tools via REST API and webhooks" }] } },
+              { id: "s4b", type: "process-steps", props: { title: "How It Works", steps: [{ stepNumber: 1, title: "Sign Up", description: "Create your free account in under 2 minutes" }, { stepNumber: 2, title: "Connect Your Tools", description: "Integrate with Slack, GitHub, Jira, and 100+ other tools" }, { stepNumber: 3, title: "See Results", description: "Get real-time insights and automate your workflow" }] } },
               { id: "s5", type: "stats", props: { stats: [{ value: "10K+", label: "Customers" }, { value: "99.9%", label: "Uptime" }, { value: "50M+", label: "Data Points" }, { value: "24/7", label: "Support" }] } },
               { id: "s6", type: "testimonials", props: { testimonials: [{ name: "Sarah J.", role: "CEO, TechCo", quote: "This tool transformed how our team works" }, { name: "Mike R.", role: "CTO, StartupXYZ", quote: "Best investment we've made this year" }] } },
               { id: "s7", type: "cta", props: { title: "Ready to Get Started?", subtitle: "Join 10,000+ teams already using our platform", primaryButton: "Start Free Trial", secondaryButton: "Book Demo" } },
@@ -204,7 +206,7 @@ const TEMPLATES: {
             blocks: [
               { id: "rm1", type: "navbar", props: { brand: "La Cucina", links: [{ label: "Home", url: "/" }, { label: "Menu", url: "/menu" }, { label: "Book a Table", url: "/book" }, { label: "Contact", url: "/contact" }] } },
               { id: "rm2", type: "heading", props: { text: "Our Menu", align: "center" } },
-              { id: "rm3", type: "product-card", props: { products: [{ name: "Margherita Pizza", price: "$14.99", description: "Classic Italian pizza", image: "" }, { name: "Pasta Carbonara", price: "$16.99", description: "Creamy pasta with bacon", image: "" }, { name: "Tiramisu", price: "$9.99", description: "Classic Italian dessert", image: "" }] } },
+              { id: "rm3", type: "menu-grid", props: { title: "", categories: [{ name: "Antipasti", items: [{ name: "Bruschetta al Pomodoro", price: "$12.99", description: "Grilled bread with fresh tomatoes, basil, and olive oil" }, { name: "Calamari Fritti", price: "$14.99", description: "Crispy fried calamari with marinara" }] }, { name: "Primi Piatti", items: [{ name: "Margherita Pizza", price: "$14.99", description: "Classic pizza with fresh mozzarella and basil" }, { name: "Pasta Carbonara", price: "$16.99", description: "Creamy pasta with pancetta and parmesan" }, { name: "Fettuccine Alfredo", price: "$15.99", description: "Rich creamy parmesan sauce" }] }, { name: "Dolci", items: [{ name: "Tiramisu", price: "$9.99", description: "Classic espresso-soaked ladyfingers with mascarpone" }, { name: "Panna Cotta", price: "$8.99", description: "Vanilla custard with berry compote" }] }] } },
               { id: "rm4", type: "footer", props: { columns: [{ title: "Contact", links: ["(555) 123-4567"] }], copyright: "2025 La Cucina" } },
             ],
             seo: { title: "Menu - La Cucina" },
@@ -235,6 +237,7 @@ const TEMPLATES: {
               { id: "a1", type: "navbar", props: { brand: "PixelForge", links: [{ label: "Home", url: "/" }, { label: "Services", url: "/services" }, { label: "Portfolio", url: "/portfolio" }, { label: "Contact", url: "/contact" }], ctaText: "Get a Quote" } },
               { id: "a2", type: "hero", props: { title: "We Build Digital Experiences", subtitle: "Award-winning design & development agency helping brands grow", buttonText: "See Our Work" } },
               { id: "a3", type: "stats", props: { stats: [{ value: "200+", label: "Projects" }, { value: "50+", label: "Clients" }, { value: "12", label: "Awards" }, { value: "8", label: "Years" }] } },
+              { id: "a3b", type: "service-card", props: { title: "What We Do", services: [{ icon: "palette", title: "Brand Strategy", description: "Craft a unique identity that resonates with your target audience", price: "From $3,000" }, { icon: "code", title: "Web Development", description: "Custom websites and web apps built with cutting-edge technology", price: "From $5,000" }, { icon: "megaphone", title: "Growth Marketing", description: "Data-driven campaigns that deliver measurable ROI", price: "From $2,000/mo" }] } },
               { id: "a4", type: "features", props: { features: [{ title: "Strategy", desc: "Data-driven digital strategy" }, { title: "Design", desc: "Beautiful visual experiences" }, { title: "Development", desc: "Scalable web solutions" }] } },
               { id: "a5", type: "logo-cloud", props: { title: "Clients we've worked with", logos: ["Google", "Meta", "Amazon", "Microsoft", "Apple"] } },
               { id: "a6", type: "cta", props: { title: "Let's Build Something Great", subtitle: "Ready to start your next project?", primaryButton: "Get a Quote", secondaryButton: "View Portfolio" } },
@@ -302,6 +305,7 @@ const TEMPLATES: {
               { id: "ev1", type: "navbar", props: { brand: "TechConf 2025", links: [{ label: "Home", url: "/" }, { label: "Speakers", url: "/speakers" }, { label: "Schedule", url: "/schedule" }, { label: "Register", url: "/register" }], ctaText: "Get Tickets" } },
               { id: "ev2", type: "hero", props: { title: "TechConf 2025", subtitle: "The biggest tech conference of the year — March 15-17, San Francisco", buttonText: "Get Tickets" } },
               { id: "ev3", type: "countdown", props: { title: "Event Starts In", subtitle: "March 15, 2025", targetDate: "2025-03-15" } },
+              { id: "ev3b", type: "event-schedule", props: { title: "Conference Agenda", days: [{ date: "Day 1 — March 15", slots: [{ time: "9:00 AM", title: "Opening Keynote", speaker: "Dr. Sarah Lee", description: "The Future of Technology" }, { time: "11:00 AM", title: "Workshop: Cloud Architecture", speaker: "Mike Chen", description: "Building scalable systems" }, { time: "2:00 PM", title: "Panel: AI Ethics", speaker: "Multiple Speakers", description: "Responsible AI development" }] }, { date: "Day 2 — March 16", slots: [{ time: "9:00 AM", title: "Keynote: Design Systems", speaker: "Emma Liu", description: "Scaling design across teams" }, { time: "11:00 AM", title: "Workshop: TypeScript", speaker: "Alex Park", description: "Advanced patterns" }] }] } },
               { id: "ev4", type: "features", props: { features: [{ title: "50+ Speakers", desc: "Industry leaders" }, { title: "3 Days", desc: "Of content" }, { title: "2000+ Attendees", desc: "From 30 countries" }] } },
               { id: "ev5", type: "team", props: { members: [{ name: "Dr. Sarah Lee", role: "Keynote Speaker", bio: "AI Research Lead" }, { name: "Mike Chen", role: "Workshop Host", bio: "Full-stack Expert" }] } },
               { id: "ev6", type: "pricing-table", props: { plans: [{ name: "Early Bird", price: "$199", features: ["All Sessions", "Lunch Included", "Networking"], highlighted: false }, { name: "VIP", price: "$499", features: ["All Sessions", "VIP Lounge", "1-on-1 Mentoring", "After Party"], highlighted: true }] } },
@@ -335,6 +339,7 @@ const TEMPLATES: {
               { id: "ed1", type: "navbar", props: { brand: "LearnHub", links: [{ label: "Home", url: "/" }, { label: "Courses", url: "/courses" }, { label: "About", url: "/about" }, { label: "Contact", url: "/contact" }], ctaText: "Sign Up" } },
               { id: "ed2", type: "hero", props: { title: "Learn New Skills Online", subtitle: "Access world-class courses from expert instructors", buttonText: "Explore Courses" } },
               { id: "ed3", type: "features", props: { features: [{ title: "100+ Courses", desc: "Covering all subjects" }, { title: "Expert Instructors", desc: "Industry professionals" }, { title: "Certificates", desc: "Earn upon completion" }] } },
+              { id: "ed3b", type: "course-card", props: { title: "Popular Courses", courses: [{ title: "Complete Web Development Bootcamp", instructor: "Prof. Sarah Miller", rating: 4.8, students: 12500, price: "$49.99", category: "Development", image: "https://images.unsplash.com/photo-1555099962-4199c345e5dd?auto=format&fit=crop&w=400&q=80" }, { title: "UX Design Masterclass", instructor: "Dr. Alex Chen", rating: 4.9, students: 8200, price: "$39.99", category: "Design", image: "https://images.unsplash.com/photo-1561070791-2526d30994b5?auto=format&fit=crop&w=400&q=80" }, { title: "Data Science with Python", instructor: "Maria Rodriguez", rating: 4.7, students: 15800, price: "$59.99", category: "Data Science", image: "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=400&q=80" }] } },
               { id: "ed4", type: "stats", props: { stats: [{ value: "50K+", label: "Students" }, { value: "100+", label: "Courses" }, { value: "95%", label: "Satisfaction" }, { value: "30+", label: "Instructors" }] } },
               { id: "ed5", type: "testimonials", props: { testimonials: [{ name: "Alex P.", role: "Student", quote: "Changed my career completely!" }, { name: "Maria S.", role: "Graduate", quote: "Best learning platform I've used" }] } },
               { id: "ed6", type: "cta", props: { title: "Start Learning Today", subtitle: "Join thousands of learners worldwide", primaryButton: "Sign Up Free", secondaryButton: "Browse Courses" } },
@@ -388,6 +393,18 @@ export default function Dashboard() {
   const [showCreate, setShowCreate] = useState(false);
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameName, setRenameName] = useState("");
+  const { data: credits } = useQuery<{
+    plan: string;
+    creditsUsed: number;
+    creditsTotal: number;
+    creditsRemaining: number;
+    totalGenerations: number;
+    generationsRemaining: number;
+    subscriptionEnd: string | null;
+    pricePerMonth: number;
+  }>({
+    queryKey: ["/api/credits"],
+  });
 
   const { data: userProjects = [], isLoading } = useQuery<Project[]>({
     queryKey: ["/api/projects"],
@@ -465,6 +482,14 @@ export default function Dashboard() {
             <Button variant="ghost" size="sm" onClick={() => navigate("/submissions")}>
               <Send className="w-4 h-4 mr-1" /> Submissions
             </Button>
+            {user?.role !== "admin" && (
+              <Button variant="outline" size="sm" onClick={async () => {
+                await fetch("/api/dev/make-admin", { method: "POST" });
+                window.location.reload();
+              }} className="border-primary/50 text-primary">
+                <ShieldCheck className="w-4 h-4 mr-1" /> Become Admin
+              </Button>
+            )}
             {user?.role === "admin" && (
               <Button variant="ghost" size="sm" onClick={() => navigate("/admin/submissions")}>
                 <ShieldCheck className="w-4 h-4 mr-1" /> Admin
@@ -487,6 +512,53 @@ export default function Dashboard() {
             <Plus className="w-4 h-4 mr-1" /> New Project
           </Button>
         </div>
+
+        {/* ── Credits Usage Bar ─────────────────────────────────────────── */}
+        {credits && (
+          <div className="mb-6 p-4 rounded-xl border bg-card">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${credits.plan === 'pro' ? 'bg-gradient-to-br from-amber-500/20 to-orange-500/20' : 'bg-primary/10'}`}>
+                  {credits.plan === 'pro' ? <Crown className="w-4 h-4 text-amber-500" /> : <Zap className="w-4 h-4 text-primary" />}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold">
+                      {credits.plan === 'pro' ? 'Pro Plan' : 'Free Plan'}
+                    </span>
+                    {credits.plan === 'pro' && (
+                      <span className="text-[10px] bg-gradient-to-r from-amber-500 to-orange-500 text-white px-2 py-0.5 rounded-full font-semibold">10K CREDITS</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {credits.plan === 'pro'
+                      ? `Renews ${credits.subscriptionEnd ? new Date(credits.subscriptionEnd).toLocaleDateString() : 'monthly'}`
+                      : `${credits.creditsRemaining.toLocaleString()} of ${credits.creditsTotal.toLocaleString()} credits remaining`
+                    }
+                  </p>
+                </div>
+              </div>
+              {credits.plan !== 'pro' && (
+                <Button size="sm" className="h-8 gap-1.5 bg-gradient-to-r from-primary to-primary/80" onClick={() => navigate('/billing')}>
+                  <Crown className="w-3.5 h-3.5" />
+                  Upgrade — ₹100/mo
+                </Button>
+              )}
+            </div>
+            <Progress
+              value={Math.min((credits.creditsUsed / credits.creditsTotal) * 100, 100)}
+              className="h-2"
+            />
+            <div className="flex justify-between mt-1.5">
+              <span className="text-[10px] text-muted-foreground">
+                {credits.creditsUsed.toLocaleString()} / {credits.creditsTotal.toLocaleString()} credits used
+              </span>
+              <span className="text-[10px] text-muted-foreground">
+                {credits.generationsRemaining} AI generations left
+              </span>
+            </div>
+          </div>
+        )}
 
         {isLoading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

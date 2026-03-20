@@ -34,6 +34,7 @@ export interface IStorage {
   upsertSubscription(userId: string, data: Partial<Subscription>): Promise<Subscription>;
 
   getAiUsage(userId: string, day: string): Promise<number>;
+  getTotalAiUsage(userId: string, sinceDay?: string): Promise<number>;
   incrementAiUsage(userId: string, day: string): Promise<void>;
 
   getSubmissions(userId: string): Promise<(Submission & { projectName?: string })[]>;
@@ -167,6 +168,19 @@ export class DatabaseStorage implements IStorage {
       .from(aiUsage)
       .where(and(eq(aiUsage.userId, userId), eq(aiUsage.day, day)));
     return usage?.count || 0;
+  }
+
+  async getTotalAiUsage(userId: string, sinceDay?: string): Promise<number> {
+    const condition = sinceDay
+      ? and(eq(aiUsage.userId, userId), sql`${aiUsage.day} >= ${sinceDay}`)
+      : eq(aiUsage.userId, userId);
+
+    const [result] = await db
+      .select({ total: sql<number>`coalesce(sum(${aiUsage.count}), 0)::int` })
+      .from(aiUsage)
+      .where(condition);
+
+    return result?.total || 0;
   }
 
   async incrementAiUsage(userId: string, day: string): Promise<void> {
@@ -531,6 +545,19 @@ export class InMemoryStorage implements IStorage {
 
   async getAiUsage(userId: string, day: string): Promise<number> {
     return this.aiUsageMap.get(`${userId}:${day}`) ?? 0;
+  }
+
+  async getTotalAiUsage(userId: string, sinceDay?: string): Promise<number> {
+    let total = 0;
+    for (const [key, count] of this.aiUsageMap) {
+      if (key.startsWith(userId + ":")) {
+        const day = key.split(":")[1];
+        if (!sinceDay || day >= sinceDay) {
+          total += count;
+        }
+      }
+    }
+    return total;
   }
 
   async incrementAiUsage(userId: string, day: string): Promise<void> {

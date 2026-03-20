@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Project, ComponentBlock, PageData, ProjectData, ProjectSettings } from "@shared/schema";
 import { migrateProjectSchema } from "@shared/schema";
+import { buildPreviewHtml } from "@/lib/preview";
 import {
   DndContext,
   closestCenter,
@@ -70,6 +71,9 @@ import {
   Palette,
   Search,
   X,
+  Eye,
+  Globe,
+  RefreshCw,
 } from "lucide-react";
 
 // --- Viewport Presets ---
@@ -428,6 +432,8 @@ export default function Builder() {
   const [renamePageName, setRenamePageName] = useState("");
   const [rightTab, setRightTab] = useState("properties");
   const [showWelcomeDialog, setShowWelcomeDialog] = useState(true);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewHtml, setPreviewHtml] = useState("");
 
   const saveTimeoutRef = useRef<any>(null);
   const initialLoadRef = useRef(false);
@@ -819,6 +825,20 @@ export default function Builder() {
               <Send className="w-4 h-4 mr-1" />
               Submit
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              title="Preview your website"
+              onClick={() => {
+                const html = buildPreviewHtml(blocks, projectData.settings || {}, project?.name || "Preview");
+                setPreviewHtml(html);
+                setShowPreview(true);
+              }}
+            >
+              <Eye className="w-3.5 h-3.5" />
+              Preview
+            </Button>
             <Link href={`/agent/${projectId}`}>
               <Button variant="default" size="sm" className="gap-1.5 bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-700 hover:to-blue-700 border-0" title="Open AI Agent (multi-model pipeline)">
                 <Sparkles className="w-3.5 h-3.5" />
@@ -997,6 +1017,61 @@ export default function Builder() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Preview Modal */}
+      <Dialog open={showPreview} onOpenChange={setShowPreview}>
+        <DialogContent className="max-w-[95vw] w-[95vw] h-[92vh] p-0 flex flex-col gap-0 overflow-hidden">
+          {/* Preview toolbar */}
+          <div className="flex items-center gap-3 px-4 py-2.5 border-b bg-background shrink-0">
+            {/* Browser dots */}
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded-full bg-red-400/70" />
+              <span className="w-3 h-3 rounded-full bg-yellow-400/70" />
+              <span className="w-3 h-3 rounded-full bg-green-400/70" />
+            </div>
+            {/* URL bar */}
+            <div className="flex-1 flex items-center gap-2 bg-muted rounded-md px-3 py-1.5 text-xs text-muted-foreground">
+              <Globe className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">{project?.name ?? "Your Website"} — Live Preview</span>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 h-7 text-xs"
+              onClick={() => {
+                const html = buildPreviewHtml(blocks, projectData.settings || {}, project?.name || "Preview");
+                setPreviewHtml(html);
+              }}
+              title="Refresh preview"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Refresh
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => setShowPreview(false)}
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+          {/* iframe */}
+          {previewHtml ? (
+            <iframe
+              srcDoc={previewHtml}
+              className="flex-1 w-full border-0"
+              title="Website Preview"
+              sandbox="allow-scripts"
+            />
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center text-muted-foreground">
+              <Monitor className="w-12 h-12 opacity-30" />
+              <p className="font-medium">Click Refresh to load preview</p>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

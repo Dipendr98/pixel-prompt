@@ -6,6 +6,8 @@ import {
   DollarSign, Mail, Quote, GalleryHorizontal, Video, HelpCircle,
   BarChart3, Users, Share2, Flag, Timer, Newspaper, Building2, Megaphone,
   BookOpen, List, ShoppingCart, CreditCard, MapPin, CalendarDays, LogIn,
+  FolderKanban, GitBranch, Gauge,
+  Workflow, Layers, UtensilsCrossed, Calendar, GraduationCap, GitCompare,
 } from "lucide-react";
 
 const COMPONENT_CATEGORIES = [
@@ -63,6 +65,14 @@ const COMPONENT_CATEGORIES = [
     ],
   },
   {
+    label: "Portfolio",
+    items: [
+      { type: "project-card", label: "Project Cards", icon: FolderKanban, description: "Showcase projects with tech stack" },
+      { type: "experience-timeline", label: "Experience Timeline", icon: GitBranch, description: "Work history timeline" },
+      { type: "skills-grid", label: "Skills Grid", icon: Gauge, description: "Skills with proficiency bars" },
+    ],
+  },
+  {
     label: "Forms & Auth",
     items: [
       { type: "contact-form", label: "Contact Form", icon: Mail, description: "Contact/inquiry form" },
@@ -70,6 +80,17 @@ const COMPONENT_CATEGORIES = [
       { type: "booking-form", label: "Booking Form", icon: CalendarDays, description: "Appointment booking" },
       { type: "login-form", label: "Login Form", icon: LogIn, description: "User sign-in form" },
       { type: "social-links", label: "Social Links", icon: Share2, description: "Social media icons" },
+    ],
+  },
+  {
+    label: "Industry",
+    items: [
+      { type: "process-steps", label: "Process Steps", icon: Workflow, description: "How it works steps" },
+      { type: "service-card", label: "Service Cards", icon: Layers, description: "Agency service offerings" },
+      { type: "menu-grid", label: "Menu Grid", icon: UtensilsCrossed, description: "Restaurant menu layout" },
+      { type: "event-schedule", label: "Event Schedule", icon: Calendar, description: "Conference agenda" },
+      { type: "course-card", label: "Course Cards", icon: GraduationCap, description: "Online course listings" },
+      { type: "comparison-table", label: "Comparison Table", icon: GitCompare, description: "Feature comparison grid" },
     ],
   },
 ];

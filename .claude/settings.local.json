@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Read(//c/Users/depen/pixel_prompt/pixel-prompt/server/**)",
-      "Read(//c/Users/depen/**)"
+      "Read(//c/Users/depen/**)",
+      "Bash(npx tsc:*)",
+      "Skill(claude-api)",
+      "Skill(claude-api:*)",
+      "Bash(node -e \"const fs=require\\(''fs''\\);const t=fs.readFileSync\\(''server/ai/orchestrator.ts'',''utf8''\\);const s=t.indexOf\\(''const CODER_SYSTEM''\\);const e=t.indexOf\\(''\\\\`\\\\`;'',s\\)+3;console.log\\(''CODER chars:'',e-s,''approx tokens:'',Math.round\\(\\(e-s\\)/4\\),''total lines:'',t.split\\(''\\\\n''\\).length\\)\")"
     ]
   }
 }

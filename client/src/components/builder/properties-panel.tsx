@@ -476,6 +476,148 @@ export function PropertiesPanel({ block, onChange }: PropertiesPanelProps) {
             />
           </>
         );
+      // --- INDUSTRY-SPECIFIC COMPONENTS ---
+
+      case "process-steps":
+        return (
+          <>
+            <Field label="Section Title"><Input value={props.title || ""} onChange={(e) => updateProp("title", e.target.value)} placeholder="How It Works" /></Field>
+            <ArrayEditor
+              label="Steps" testPrefix="step"
+              items={props.steps || []}
+              template={{ stepNumber: (props.steps?.length || 0) + 1, title: "New Step", description: "Step description" }}
+              fields={[
+                { key: "stepNumber", label: "Step #" },
+                { key: "title", label: "Title" },
+                { key: "description", label: "Description", type: "textarea" },
+              ]}
+              onChange={(v) => updateProp("steps", v)}
+            />
+          </>
+        );
+
+      case "service-card":
+        return (
+          <>
+            <Field label="Section Title"><Input value={props.title || ""} onChange={(e) => updateProp("title", e.target.value)} placeholder="Our Services" /></Field>
+            <ArrayEditor
+              label="Services" testPrefix="service"
+              items={props.services || []}
+              template={{ icon: "code", title: "New Service", description: "Service description", price: "" }}
+              fields={[
+                { key: "icon", label: "Icon", type: "select", options: [
+                  { value: "palette", label: "Design" }, { value: "code", label: "Development" },
+                  { value: "megaphone", label: "Marketing" }, { value: "chart", label: "Analytics" },
+                  { value: "shield", label: "Security" }, { value: "zap", label: "Performance" },
+                ]},
+                { key: "title", label: "Title" },
+                { key: "description", label: "Description", type: "textarea" },
+                { key: "price", label: "Price (optional)", placeholder: "From $2,500" },
+              ]}
+              onChange={(v) => updateProp("services", v)}
+            />
+          </>
+        );
+
+      case "menu-grid":
+        return (
+          <>
+            <Field label="Section Title"><Input value={props.title || ""} onChange={(e) => updateProp("title", e.target.value)} placeholder="Our Menu" /></Field>
+            {(props.categories || []).map((cat: any, ci: number) => (
+              <div key={ci} className="border border-border rounded-md p-2 space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="text-[10px] font-medium">Category {ci + 1}</Label>
+                  <Button variant="ghost" size="sm" className="text-destructive text-xs h-6 px-2" onClick={() => { const arr = [...(props.categories || [])]; arr.splice(ci, 1); updateProp("categories", arr); }}><Trash2 className="w-3 h-3" /></Button>
+                </div>
+                <div><Label className="text-[10px] text-muted-foreground">Name</Label><Input value={cat.name || ""} onChange={(e) => { const arr = [...(props.categories || [])]; arr[ci] = { ...arr[ci], name: e.target.value }; updateProp("categories", arr); }} className="h-7 text-xs" /></div>
+                {(cat.items || []).map((item: any, ii: number) => (
+                  <div key={ii} className="ml-2 border-l-2 border-border pl-2 space-y-1">
+                    <div className="flex gap-1">
+                      <Input value={item.name || ""} onChange={(e) => { const arr = [...(props.categories || [])]; const items = [...(arr[ci].items || [])]; items[ii] = { ...items[ii], name: e.target.value }; arr[ci] = { ...arr[ci], items }; updateProp("categories", arr); }} placeholder="Dish name" className="h-6 text-xs flex-1" />
+                      <Input value={item.price || ""} onChange={(e) => { const arr = [...(props.categories || [])]; const items = [...(arr[ci].items || [])]; items[ii] = { ...items[ii], price: e.target.value }; arr[ci] = { ...arr[ci], items }; updateProp("categories", arr); }} placeholder="$12.99" className="h-6 text-xs w-20" />
+                    </div>
+                    <Input value={item.description || ""} onChange={(e) => { const arr = [...(props.categories || [])]; const items = [...(arr[ci].items || [])]; items[ii] = { ...items[ii], description: e.target.value }; arr[ci] = { ...arr[ci], items }; updateProp("categories", arr); }} placeholder="Description" className="h-6 text-xs" />
+                  </div>
+                ))}
+                <Button variant="ghost" size="sm" className="text-xs w-full" onClick={() => { const arr = [...(props.categories || [])]; arr[ci] = { ...arr[ci], items: [...(arr[ci].items || []), { name: "New Dish", price: "$0.00", description: "" }] }; updateProp("categories", arr); }}><Plus className="w-3 h-3 mr-1" /> Add Item</Button>
+              </div>
+            ))}
+            <Button variant="ghost" size="sm" className="text-xs w-full" onClick={() => updateProp("categories", [...(props.categories || []), { name: "New Category", items: [{ name: "Dish Name", price: "$0.00", description: "" }] }])}><Plus className="w-3 h-3 mr-1" /> Add Category</Button>
+          </>
+        );
+
+      case "event-schedule":
+        return (
+          <>
+            <Field label="Section Title"><Input value={props.title || ""} onChange={(e) => updateProp("title", e.target.value)} placeholder="Event Schedule" /></Field>
+            {(props.days || []).map((day: any, di: number) => (
+              <div key={di} className="border border-border rounded-md p-2 space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="text-[10px] font-medium">Day {di + 1}</Label>
+                  <Button variant="ghost" size="sm" className="text-destructive text-xs h-6 px-2" onClick={() => { const arr = [...(props.days || [])]; arr.splice(di, 1); updateProp("days", arr); }}><Trash2 className="w-3 h-3" /></Button>
+                </div>
+                <div><Label className="text-[10px] text-muted-foreground">Date Label</Label><Input value={day.date || ""} onChange={(e) => { const arr = [...(props.days || [])]; arr[di] = { ...arr[di], date: e.target.value }; updateProp("days", arr); }} className="h-7 text-xs" placeholder="Day 1 — March 15, 2025" /></div>
+                {(day.slots || []).map((slot: any, si: number) => (
+                  <div key={si} className="ml-2 border-l-2 border-border pl-2 space-y-1">
+                    <div className="flex gap-1">
+                      <Input value={slot.time || ""} onChange={(e) => { const arr = [...(props.days || [])]; const slots = [...(arr[di].slots || [])]; slots[si] = { ...slots[si], time: e.target.value }; arr[di] = { ...arr[di], slots }; updateProp("days", arr); }} placeholder="9:00 AM" className="h-6 text-xs w-20" />
+                      <Input value={slot.title || ""} onChange={(e) => { const arr = [...(props.days || [])]; const slots = [...(arr[di].slots || [])]; slots[si] = { ...slots[si], title: e.target.value }; arr[di] = { ...arr[di], slots }; updateProp("days", arr); }} placeholder="Session title" className="h-6 text-xs flex-1" />
+                    </div>
+                    <Input value={slot.speaker || ""} onChange={(e) => { const arr = [...(props.days || [])]; const slots = [...(arr[di].slots || [])]; slots[si] = { ...slots[si], speaker: e.target.value }; arr[di] = { ...arr[di], slots }; updateProp("days", arr); }} placeholder="Speaker name" className="h-6 text-xs" />
+                  </div>
+                ))}
+                <Button variant="ghost" size="sm" className="text-xs w-full" onClick={() => { const arr = [...(props.days || [])]; arr[di] = { ...arr[di], slots: [...(arr[di].slots || []), { time: "", title: "New Session", speaker: "", description: "" }] }; updateProp("days", arr); }}><Plus className="w-3 h-3 mr-1" /> Add Slot</Button>
+              </div>
+            ))}
+            <Button variant="ghost" size="sm" className="text-xs w-full" onClick={() => updateProp("days", [...(props.days || []), { date: `Day ${(props.days?.length || 0) + 1}`, slots: [{ time: "9:00 AM", title: "Session", speaker: "" }] }])}><Plus className="w-3 h-3 mr-1" /> Add Day</Button>
+          </>
+        );
+
+      case "course-card":
+        return (
+          <>
+            <Field label="Section Title"><Input value={props.title || ""} onChange={(e) => updateProp("title", e.target.value)} placeholder="Popular Courses" /></Field>
+            <ArrayEditor
+              label="Courses" testPrefix="course"
+              items={props.courses || []}
+              template={{ title: "New Course", instructor: "Instructor", rating: 4.5, students: 1000, price: "$29.99", category: "General", image: "" }}
+              fields={[
+                { key: "title", label: "Course Title" },
+                { key: "instructor", label: "Instructor" },
+                { key: "category", label: "Category" },
+                { key: "price", label: "Price" },
+                { key: "image", label: "Cover Image", type: "image" },
+              ]}
+              onChange={(v) => updateProp("courses", v)}
+            />
+          </>
+        );
+
+      case "comparison-table":
+        return (
+          <>
+            <Field label="Section Title"><Input value={props.title || ""} onChange={(e) => updateProp("title", e.target.value)} placeholder="Compare Plans" /></Field>
+            <Field label="Features (one per line)">
+              <Textarea
+                value={(props.features || []).join("\n")}
+                onChange={(e) => updateProp("features", e.target.value.split("\n").filter(Boolean))}
+                className="resize-none min-h-[100px] text-xs"
+                placeholder={"Users\nStorage\nAPI Access\nCustom Domain"}
+              />
+            </Field>
+            {(props.plans || []).map((plan: any, pi: number) => (
+              <div key={pi} className="border border-border rounded-md p-2 space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="text-[10px] font-medium">Plan: {plan.name}</Label>
+                  <Button variant="ghost" size="sm" className="text-destructive text-xs h-6 px-2" onClick={() => { const arr = [...(props.plans || [])]; arr.splice(pi, 1); updateProp("plans", arr); }}><Trash2 className="w-3 h-3" /></Button>
+                </div>
+                <div><Label className="text-[10px] text-muted-foreground">Name</Label><Input value={plan.name || ""} onChange={(e) => { const arr = [...(props.plans || [])]; arr[pi] = { ...arr[pi], name: e.target.value }; updateProp("plans", arr); }} className="h-7 text-xs" /></div>
+                <div><Label className="text-[10px] text-muted-foreground">Values (comma-separated, use ✓/✗ for booleans)</Label><Input value={(plan.values || []).map((v: any) => v === true ? "✓" : v === false ? "✗" : v).join(", ")} onChange={(e) => { const arr = [...(props.plans || [])]; arr[pi] = { ...arr[pi], values: e.target.value.split(",").map((v: string) => { const t = v.trim(); if (t === "✓" || t === "true") return true; if (t === "✗" || t === "false") return false; return t; }) }; updateProp("plans", arr); }} className="h-7 text-xs" /></div>
+              </div>
+            ))}
+            <Button variant="ghost" size="sm" className="text-xs w-full" onClick={() => updateProp("plans", [...(props.plans || []), { name: "New Plan", values: (props.features || []).map(() => false) }])}><Plus className="w-3 h-3 mr-1" /> Add Plan</Button>
+          </>
+        );
 
       default:
         return <p className="text-sm text-muted-foreground">No properties available for this block type.</p>;

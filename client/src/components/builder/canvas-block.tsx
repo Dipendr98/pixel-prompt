@@ -9,6 +9,7 @@ import {
   Play, Globe, MapPin, Phone, Clock, BookOpen, List, CreditCard, CalendarDays, LogIn,
   FolderKanban, GitBranch, Gauge, ExternalLink, Github, Code2, Palette, Cloud,
   Database, Smartphone, Settings2, Briefcase,
+  Workflow, Layers, UtensilsCrossed, Calendar, GraduationCap, GitCompare, Zap, Shield, BarChart,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
@@ -37,6 +38,8 @@ const iconMap: Record<string, any> = {
   "blog-post": BookOpen, "blog-list": List, cart: ShoppingCart, "checkout-form": CreditCard,
   map: MapPin, "booking-form": CalendarDays, "login-form": LogIn,
   "project-card": FolderKanban, "experience-timeline": GitBranch, "skills-grid": Gauge,
+  "process-steps": Workflow, "service-card": Layers, "menu-grid": UtensilsCrossed,
+  "event-schedule": Calendar, "course-card": GraduationCap, "comparison-table": GitCompare,
 };
 
 interface CanvasBlockProps {
@@ -409,7 +412,7 @@ function renderBlockPreview(block: ComponentBlock) {
         <div>
           <h3 className="text-lg font-semibold mb-4 text-center">{props.title || "Latest Posts"}</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {(props.columns?.length ? props.columns : [
+            {(props.posts?.length ? props.posts : props.columns?.length ? props.columns : [
               { title: "Getting Started", excerpt: "Learn the basics...", author: "Sarah", date: "2025-01-15", category: "Design" },
               { title: "Top 10 Tips", excerpt: "Boost your rankings...", author: "Mike", date: "2025-01-10", category: "Marketing" },
               { title: "Online Store Guide", excerpt: "Step-by-step guide...", author: "Lisa", date: "2025-01-05", category: "E-Commerce" },
@@ -491,7 +494,7 @@ function renderBlockPreview(block: ComponentBlock) {
             <div>
               <p className="text-xs font-medium mb-2">Service</p>
               <div className="flex gap-2 flex-wrap">
-                {(props.links?.length ? props.links : ["Consultation", "Session", "Meeting"]).map((s: string, i: number) => (
+                {(props.services?.length ? props.services : props.links?.length ? props.links : ["Consultation", "Session", "Meeting"]).map((s: string, i: number) => (
                   <span key={i} className="text-xs border border-border rounded-md px-3 py-1.5 cursor-pointer hover:bg-muted">{s}</span>
                 ))}
               </div>
@@ -680,6 +683,248 @@ function renderBlockPreview(block: ComponentBlock) {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      );
+    }
+
+    // ── PROCESS STEPS (SaaS / Agency) ─────────────────────────────────────────
+    case "process-steps": {
+      const steps = props.steps?.length ? props.steps : [
+        { stepNumber: 1, title: "Sign Up", description: "Create your free account in under 2 minutes with just your email" },
+        { stepNumber: 2, title: "Configure", description: "Set up your workspace, invite your team, and connect your tools" },
+        { stepNumber: 3, title: "Launch", description: "Go live and start seeing results from day one with real-time analytics" },
+      ];
+      return wrapStyle(
+        <div>
+          <h3 className="text-lg font-bold text-center mb-8">{props.title || "How It Works"}</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {steps.map((step: any, i: number) => (
+              <div key={i} className="flex flex-col items-center text-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-white font-bold text-lg shadow-lg">
+                  {step.stepNumber || i + 1}
+                </div>
+                {i < steps.length - 1 && <div className="hidden md:block absolute top-6 left-[60%] w-[80%] h-px bg-border" />}
+                <h4 className="text-sm font-semibold">{step.title}</h4>
+                <p className="text-xs text-muted-foreground leading-relaxed">{step.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // ── SERVICE CARD (Agency / Freelancer) ────────────────────────────────────
+    case "service-card": {
+      const serviceIconMap: Record<string, any> = {
+        palette: <Palette className="w-5 h-5" />,
+        code: <Code2 className="w-5 h-5" />,
+        megaphone: <Megaphone className="w-5 h-5" />,
+        chart: <BarChart className="w-5 h-5" />,
+        shield: <Shield className="w-5 h-5" />,
+        zap: <Zap className="w-5 h-5" />,
+      };
+      const services = props.services?.length ? props.services : [
+        { icon: "palette", title: "UI/UX Design", description: "Beautiful, user-centered interfaces that convert visitors into customers", price: "From $2,500" },
+        { icon: "code", title: "Web Development", description: "Custom full-stack applications built with modern technologies", price: "From $5,000" },
+        { icon: "megaphone", title: "Digital Marketing", description: "Data-driven campaigns that grow your reach and revenue", price: "From $1,500/mo" },
+      ];
+      return wrapStyle(
+        <div>
+          <h3 className="text-lg font-bold text-center mb-6">{props.title || "Our Services"}</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {services.map((svc: any, i: number) => (
+              <div key={i} className="border border-border rounded-xl p-5 hover:border-primary/50 transition-all hover:shadow-lg bg-card group">
+                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary mb-4 group-hover:bg-primary/20 transition-colors">
+                  {serviceIconMap[svc.icon] || <Star className="w-5 h-5" />}
+                </div>
+                <h4 className="text-sm font-semibold mb-2">{svc.title}</h4>
+                <p className="text-xs text-muted-foreground leading-relaxed mb-3">{svc.description}</p>
+                {svc.price && <p className="text-xs font-semibold text-primary">{svc.price}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // ── MENU GRID (Restaurant / Cafe) ─────────────────────────────────────────
+    case "menu-grid": {
+      const categories = props.categories?.length ? props.categories : [
+        { name: "Starters", items: [
+          { name: "Bruschetta al Pomodoro", price: "$12.99", description: "Grilled bread topped with fresh tomatoes, basil, and extra virgin olive oil" },
+          { name: "Calamari Fritti", price: "$14.99", description: "Crispy fried calamari served with marinara and lemon aioli" },
+        ]},
+        { name: "Main Course", items: [
+          { name: "Fettuccine Alfredo", price: "$18.99", description: "House-made pasta in a rich, creamy parmesan sauce" },
+          { name: "Grilled Salmon", price: "$24.99", description: "Atlantic salmon with roasted vegetables and lemon butter" },
+        ]},
+        { name: "Desserts", items: [
+          { name: "Tiramisu", price: "$10.99", description: "Classic Italian dessert with espresso-soaked ladyfingers and mascarpone" },
+        ]},
+      ];
+      return wrapStyle(
+        <div>
+          <h3 className="text-lg font-bold text-center mb-6">{props.title || "Our Menu"}</h3>
+          <div className="space-y-6">
+            {categories.map((cat: any, ci: number) => (
+              <div key={ci}>
+                <h4 className="text-sm font-bold uppercase tracking-wider mb-3 border-b border-border pb-2 text-primary">{cat.name}</h4>
+                <div className="space-y-3">
+                  {(cat.items || []).map((item: any, ii: number) => (
+                    <div key={ii} className="flex justify-between items-start gap-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">{item.name}</span>
+                          <span className="flex-1 border-b border-dotted border-border" />
+                          <span className="text-sm font-bold text-primary whitespace-nowrap">{item.price}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">{item.description}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // ── EVENT SCHEDULE (Conference / Event) ───────────────────────────────────
+    case "event-schedule": {
+      const days = props.days?.length ? props.days : [
+        { date: "Day 1 — March 15, 2025", slots: [
+          { time: "9:00 AM", title: "Opening Keynote", speaker: "Dr. Sarah Chen", description: "The Future of AI in Product Development" },
+          { time: "10:30 AM", title: "Workshop: React Patterns", speaker: "Alex Rivera", description: "Advanced React architecture for scale" },
+          { time: "1:00 PM", title: "Panel: DevOps Evolution", speaker: "Multiple Speakers", description: "CI/CD, Infrastructure as Code, and beyond" },
+          { time: "3:30 PM", title: "Lightning Talks", speaker: "Community", description: "5-minute talks from attendees" },
+        ]},
+        { date: "Day 2 — March 16, 2025", slots: [
+          { time: "9:00 AM", title: "Keynote: Design Systems", speaker: "Emma Liu", description: "Building at scale with design tokens" },
+          { time: "11:00 AM", title: "Workshop: TypeScript Deep Dive", speaker: "Mike Park", description: "Advanced types and patterns" },
+        ]},
+      ];
+      return wrapStyle(
+        <div>
+          <h3 className="text-lg font-bold text-center mb-6">{props.title || "Event Schedule"}</h3>
+          <div className="space-y-6">
+            {days.map((day: any, di: number) => (
+              <div key={di}>
+                <h4 className="text-sm font-bold mb-3 px-3 py-1.5 bg-primary/10 text-primary rounded-md inline-block">{day.date}</h4>
+                <div className="space-y-2 ml-1">
+                  {(day.slots || []).map((slot: any, si: number) => (
+                    <div key={si} className="flex gap-4 items-start border-l-2 border-primary/30 pl-4 py-2 hover:border-primary transition-colors">
+                      <span className="text-xs font-mono font-bold text-primary whitespace-nowrap w-16 shrink-0">{slot.time}</span>
+                      <div className="flex-1">
+                        <h5 className="text-sm font-semibold">{slot.title}</h5>
+                        <p className="text-xs text-muted-foreground">
+                          <span className="font-medium">{slot.speaker}</span>
+                          {slot.description && <> — {slot.description}</>}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // ── COURSE CARD (Education / Learning) ────────────────────────────────────
+    case "course-card": {
+      const courses = props.courses?.length ? props.courses : [
+        { title: "Complete Web Development Bootcamp", instructor: "Prof. Sarah Miller", rating: 4.8, students: 12500, price: "$49.99", category: "Development", image: "https://images.unsplash.com/photo-1555099962-4199c345e5dd?auto=format&fit=crop&w=400&q=80" },
+        { title: "UX Design Masterclass", instructor: "Dr. Alex Chen", rating: 4.9, students: 8200, price: "$39.99", category: "Design", image: "https://images.unsplash.com/photo-1561070791-2526d30994b5?auto=format&fit=crop&w=400&q=80" },
+        { title: "Data Science with Python", instructor: "Maria Rodriguez", rating: 4.7, students: 15800, price: "$59.99", category: "Data Science", image: "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=400&q=80" },
+      ];
+      return wrapStyle(
+        <div>
+          <h3 className="text-lg font-bold text-center mb-6">{props.title || "Popular Courses"}</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {courses.map((course: any, i: number) => (
+              <div key={i} className="border border-border rounded-xl overflow-hidden bg-card hover:shadow-lg transition-all group">
+                <div className="h-28 overflow-hidden">
+                  {course.image ? (
+                    <img src={course.image} alt={course.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                  ) : (
+                    <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+                      <GraduationCap className="w-8 h-8 text-primary/40" />
+                    </div>
+                  )}
+                </div>
+                <div className="p-4">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-primary bg-primary/10 px-2 py-0.5 rounded-full">{course.category || "Course"}</span>
+                  <h4 className="text-sm font-semibold mt-2 line-clamp-2">{course.title}</h4>
+                  <p className="text-xs text-muted-foreground mt-1">{course.instructor}</p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <div className="flex items-center gap-0.5">
+                      {Array.from({ length: 5 }).map((_, si) => (
+                        <Star key={si} className={`w-3 h-3 ${si < Math.floor(course.rating || 0) ? "text-yellow-400 fill-yellow-400" : "text-muted"}`} />
+                      ))}
+                    </div>
+                    <span className="text-[10px] text-muted-foreground">{course.rating}</span>
+                    <span className="text-[10px] text-muted-foreground">({(course.students || 0).toLocaleString()} students)</span>
+                  </div>
+                  <div className="flex items-center justify-between mt-3">
+                    <span className="text-sm font-bold text-primary">{course.price || "Free"}</span>
+                    <span className="text-[10px] font-medium px-2 py-1 bg-primary text-primary-foreground rounded-md">Enroll Now</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // ── COMPARISON TABLE (SaaS) ───────────────────────────────────────────────
+    case "comparison-table": {
+      const features = props.features?.length ? props.features : [
+        "Users", "Storage", "API Access", "Custom Domain", "Priority Support", "Analytics", "SSO",
+      ];
+      const plans = props.plans?.length ? props.plans : [
+        { name: "Starter", values: ["5", "10 GB", false, false, false, true, false] },
+        { name: "Pro", values: ["Unlimited", "100 GB", true, true, true, true, false] },
+        { name: "Enterprise", values: ["Unlimited", "1 TB", true, true, true, true, true] },
+      ];
+      return wrapStyle(
+        <div>
+          <h3 className="text-lg font-bold text-center mb-6">{props.title || "Compare Plans"}</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left py-3 px-3 font-medium text-muted-foreground">Feature</th>
+                  {plans.map((plan: any, pi: number) => (
+                    <th key={pi} className="text-center py-3 px-3 font-semibold">{plan.name}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {features.map((feature: string, fi: number) => (
+                  <tr key={fi} className={`border-b border-border/50 ${fi % 2 === 0 ? "bg-muted/20" : ""}`}>
+                    <td className="py-2.5 px-3 font-medium">{feature}</td>
+                    {plans.map((plan: any, pi: number) => {
+                      const val = plan.values?.[fi];
+                      return (
+                        <td key={pi} className="text-center py-2.5 px-3">
+                          {val === true ? (
+                            <Check className="w-4 h-4 text-emerald-500 mx-auto" />
+                          ) : val === false ? (
+                            <Minus className="w-4 h-4 text-muted-foreground/40 mx-auto" />
+                          ) : (
+                            <span className="font-medium">{val}</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       );

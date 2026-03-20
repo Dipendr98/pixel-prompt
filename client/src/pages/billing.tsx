@@ -5,8 +5,10 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Check, Layers, ArrowLeft, Sparkles, Download, MessageSquare, Zap } from "lucide-react";
+import { Check, Layers, ArrowLeft, Sparkles, Download, MessageSquare, Zap, Crown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery } from "@tanstack/react-query";
+import { Progress } from "@/components/ui/progress";
 
 declare global {
   interface Window {
@@ -18,6 +20,18 @@ export default function Billing() {
   const { user, isPro } = useAuth();
   const [, navigate] = useLocation();
   const { toast } = useToast();
+
+  const { data: credits } = useQuery<{
+    plan: string;
+    creditsUsed: number;
+    creditsTotal: number;
+    creditsRemaining: number;
+    totalGenerations: number;
+    generationsRemaining: number;
+    subscriptionEnd: string | null;
+  }>({
+    queryKey: ["/api/credits"],
+  });
 
   const cancelMutation = useMutation({
     mutationFn: async () => {
@@ -59,7 +73,8 @@ export default function Billing() {
               razorpay_signature: response.razorpay_signature,
             });
             queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-            toast({ title: "Upgrade successful!", description: "You now have Pro access" });
+            queryClient.invalidateQueries({ queryKey: ["/api/credits"] });
+            toast({ title: "Upgrade successful!", description: "You now have unlimited Pro access!" });
           } catch (err: any) {
             toast({ title: "Verification failed", description: err.message, variant: "destructive" });
           }
@@ -82,16 +97,18 @@ export default function Billing() {
 
   const freePlanFeatures = [
     { icon: Layers, text: "Unlimited projects" },
-    { icon: MessageSquare, text: "3 AI calls per day" },
+    { icon: MessageSquare, text: "3,000 AI credits (100 per generation)" },
     { icon: Check, text: "Drag & drop builder" },
+    { icon: Check, text: "All block types" },
     { icon: Check, text: "Submit to team" },
   ];
 
   const proPlanFeatures = [
     { icon: Sparkles, text: "Everything in Free" },
-    { icon: MessageSquare, text: "Unlimited AI calls" },
-    { icon: Download, text: "Export to ZIP" },
+    { icon: Crown, text: "10,000 AI credits/month" },
+    { icon: Download, text: "Export to ZIP & Next.js" },
     { icon: Zap, text: "Priority support" },
+    { icon: Check, text: "Credits reset monthly" },
   ];
 
   return (
@@ -124,7 +141,7 @@ export default function Billing() {
                 {!isPro && <Badge variant="secondary" data-testid="badge-current-plan">Current Plan</Badge>}
               </div>
               <div className="mt-2">
-                <span className="text-3xl font-bold">$0</span>
+                <span className="text-3xl font-bold">₹0</span>
                 <span className="text-muted-foreground text-sm">/month</span>
               </div>
             </CardHeader>
@@ -145,7 +162,7 @@ export default function Billing() {
                 {isPro && <Badge data-testid="badge-current-plan">Current Plan</Badge>}
               </div>
               <div className="mt-2">
-                <span className="text-3xl font-bold">$9</span>
+                <span className="text-3xl font-bold">₹100</span>
                 <span className="text-muted-foreground text-sm">/month</span>
               </div>
             </CardHeader>

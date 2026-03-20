@@ -45,31 +45,31 @@ const PROVIDER_CONFIGS: Record<string, ProviderConfig> = {
 // Role → primary model assignment
 export const ROLE_ASSIGNMENTS = {
   planner: { provider: "groq", model: "llama-3.3-70b-versatile" },
-  coder:   { provider: "nvidia", model: "deepseek-ai/deepseek-v3.2" },
+  coder: { provider: "nvidia", model: "meta/llama-3.1-405b-instruct" },
   reviewer: { provider: "github", model: "gpt-4o-mini" },
-  fast:    { provider: "groq", model: "llama-3.1-8b-instant" },
+  fast: { provider: "groq", model: "llama-3.1-8b-instant" },
 } as const;
 
 // Fallback chains per role (most capable first, then degraded)
 const FALLBACK_CHAINS: Record<string, Array<{ provider: string; model: string }>> = {
   planner: [
-    { provider: "groq",   model: "llama-3.3-70b-versatile" },
-    { provider: "nvidia", model: "deepseek-ai/deepseek-v3.2" },
+    { provider: "groq", model: "llama-3.3-70b-versatile" },
+    { provider: "nvidia", model: "meta/llama-3.1-405b-instruct" },
     { provider: "github", model: "gpt-4o-mini" },
   ],
   coder: [
-    { provider: "nvidia", model: "deepseek-ai/deepseek-v3.2" },
-    { provider: "groq",   model: "llama-3.3-70b-versatile" },
+    { provider: "groq", model: "llama-3.3-70b-versatile" },
     { provider: "github", model: "gpt-4o-mini" },
+    { provider: "nvidia", model: "meta/llama-3.1-405b-instruct" },
   ],
   reviewer: [
     { provider: "github", model: "gpt-4o-mini" },
-    { provider: "groq",   model: "llama-3.3-70b-versatile" },
-    { provider: "nvidia", model: "deepseek-ai/deepseek-v3.2" },
+    { provider: "groq", model: "llama-3.3-70b-versatile" },
+    { provider: "nvidia", model: "meta/llama-3.1-405b-instruct" },
   ],
   fast: [
-    { provider: "groq",   model: "llama-3.1-8b-instant" },
-    { provider: "groq",   model: "llama-3.3-70b-versatile" },
+    { provider: "groq", model: "llama-3.1-8b-instant" },
+    { provider: "groq", model: "llama-3.3-70b-versatile" },
   ],
 };
 
@@ -144,10 +144,15 @@ export async function callProvider(
 
 export type AgentRole = keyof typeof ROLE_ASSIGNMENTS;
 
+/**
+ * Calls providers in fallback order. If `validate` is provided, also retries
+ * the next provider when the response fails validation (e.g. missing JSON array).
+ */
 export async function callWithFallback(
   role: AgentRole,
   messages: ChatMessage[],
-  options: CallOptions = {}
+  options: CallOptions = {},
+  validate?: (content: string) => boolean
 ): Promise<{ content: string; providerName: string; model: string }> {
   const chain = FALLBACK_CHAINS[role] ?? [ROLE_ASSIGNMENTS[role]];
   let lastError: Error = new Error("No providers available");
@@ -155,6 +160,12 @@ export async function callWithFallback(
   for (const { provider, model } of chain) {
     try {
       const content = await callProvider(provider, model, messages, options);
+      if (validate && !validate(content)) {
+        const msg = `${provider}/${model} returned content that failed validation`;
+        console.warn(`[AI] ${msg} — trying next provider`);
+        lastError = new Error(msg);
+        continue;
+      }
       const displayName = PROVIDER_CONFIGS[provider]?.displayName ?? provider;
       return { content, providerName: displayName, model };
     } catch (err: any) {
@@ -165,6 +176,9 @@ export async function callWithFallback(
 
   throw lastError;
 }
+
+/** @deprecated Use callWithFallback with a validate parameter instead */
+export const callWithFallbackValidated = callWithFallback;
 
 function getEnvVar(provider: string): string {
   const map: Record<string, string> = {

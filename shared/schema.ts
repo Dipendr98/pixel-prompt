@@ -132,8 +132,12 @@ export const componentSchema = z.object({
     "navbar", "footer", "product-card", "pricing-table", "contact-form", "testimonials",
     "gallery", "video", "faq", "stats", "team", "social-links", "banner", "countdown", "newsletter",
     "logo-cloud", "cta",
-    // New components
+    // Blog & e-commerce
     "blog-post", "blog-list", "cart", "checkout-form", "map", "booking-form", "login-form",
+    // Portfolio-specific
+    "project-card", "experience-timeline", "skills-grid",
+    // Industry-specific
+    "process-steps", "service-card", "menu-grid", "event-schedule", "course-card", "comparison-table",
   ]),
   props: z.record(z.any()).optional(),
   children: z.array(z.any()).optional(),

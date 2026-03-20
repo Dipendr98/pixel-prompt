@@ -276,6 +276,20 @@ export function setupAuth(app: Express) {
     const subscription = await storage.getSubscription(req.user.id);
     res.json({ ...req.user, subscription });
   });
+
+  // ─── Dev Backdoor: Make the current user an admin ──────────────────────
+  app.post("/api/dev/make-admin", requireAuth, async (req, res) => {
+    try {
+      if (req.user) {
+        await storage.updateUserRole(req.user.id, "admin");
+        res.json({ success: true, message: "You are now an admin! Please refresh the page." });
+      } else {
+        res.status(401).json({ message: "Not logged in" });
+      }
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
 }
 
 export function requireAuth(req: Request, res: any, next: any) {
