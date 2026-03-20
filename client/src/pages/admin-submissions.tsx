@@ -3,12 +3,13 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { Submission, SupportTicket, Project, User, AutomationLog, Subscription } from "@shared/schema";
+import type { Submission, SupportTicket, Project, User, AutomationLog, Subscription, UserQuery, SiteSettings } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -37,6 +38,7 @@ import {
   CreditCard, Zap, Play, CheckCircle, XCircle, Clock, RefreshCw,
   Send, Shield, Layers, Trash2, Search, ArrowLeft,
   TrendingUp, Activity, UserCheck, ChevronRight,
+  Mail, Phone, MapPin, Settings, Loader2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format, formatDistanceToNow } from "date-fns";
@@ -61,6 +63,8 @@ const NAV_ITEMS = [
   { id: "tickets", label: "Support Tickets", icon: MessageSquare },
   { id: "subscriptions", label: "Subscriptions", icon: CreditCard },
   { id: "automations", label: "Automations", icon: Zap },
+  { id: "inquiries", label: "Inquiries", icon: Mail },
+  { id: "site-settings", label: "Site Settings", icon: Settings },
 ];
 
 export default function AdminSubmissions() {
@@ -71,6 +75,13 @@ export default function AdminSubmissions() {
   const [searchQuery, setSearchQuery] = useState("");
   const [replyTicketId, setReplyTicketId] = useState<string | null>(null);
   const [replyText, setReplyText] = useState("");
+  const [replyQueryId, setReplyQueryId] = useState<string | null>(null);
+  const [replyQueryText, setReplyQueryText] = useState("");
+  const [settingsForm, setSettingsForm] = useState({
+    contactEmail: "",
+    contactPhone: "",
+    contactAddress: "",
+  });
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: string; id: string; label: string } | null>(null);
 
   const { data: stats } = useQuery<{ totalUsers: number; totalProjects: number; activeSubscriptions: number; openTickets: number; totalSubmissions: number }>({
@@ -103,6 +114,14 @@ export default function AdminSubmissions() {
 
   const { data: recentActivity } = useQuery<ActivityItem[]>({
     queryKey: ["/api/admin/activity"],
+  });
+
+  const { data: userQueries, isLoading: loadingQueries } = useQuery<UserQuery[]>({
+    queryKey: ["/api/admin/queries"],
+  });
+
+  const { data: siteSettings, isLoading: loadingSettings } = useQuery<SiteSettings>({
+    queryKey: ["/api/site-settings"],
   });
 
   const runJobMutation = useMutation({
@@ -189,6 +208,34 @@ export default function AdminSubmissions() {
     },
   });
 
+  const replyQueryMutation = useMutation({
+    mutationFn: async ({ id, reply }: { id: string; reply: string }) => {
+      await apiRequest("POST", `/api/admin/queries/${id}/respond`, { reply });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/queries"] });
+      toast({ title: "Reply sent", description: "The user has been notified." });
+      setReplyQueryId(null);
+      setReplyQueryText("");
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to reply", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const settingsMutation = useMutation({
+    mutationFn: async (data: Partial<SiteSettings>) => {
+      await apiRequest("PATCH", `/api/admin/site-settings`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/site-settings"] });
+      toast({ title: "Settings updated", description: "Contact details updated successfully." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to update", description: err.message, variant: "destructive" });
+    },
+  });
+
   if (user?.role !== "admin") {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -249,6 +296,8 @@ export default function AdminSubmissions() {
       case "tickets": return renderTickets();
       case "subscriptions": return renderSubscriptions();
       case "automations": return renderAutomations();
+      case "inquiries": return renderInquiries();
+      case "site-settings": return renderSiteSettings();
       default: return renderOverview();
     }
   };
@@ -913,6 +962,189 @@ export default function AdminSubmissions() {
             </Card>
           )}
         </div>
+      </div>
+    );
+  }
+
+  function renderInquiries() {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h1 className="text-2xl font-semibold">Public Inquiries</h1>
+            <p className="text-sm text-muted-foreground mt-1">Messages submitted through the public Contact page</p>
+          </div>
+        </div>
+
+        {loadingQueries ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+          </div>
+        ) : userQueries && userQueries.length > 0 ? (
+          <div className="grid gap-4">
+            {userQueries.map((q) => (
+              <Card key={q.id}>
+                <CardHeader className="pb-3 border-b bg-muted/20">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <CardTitle className="text-base font-semibold">{q.subject}</CardTitle>
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <span className="font-medium text-foreground">{q.name}</span>
+                        <span>&bull;</span>
+                        <a href={`mailto:${q.email}`} className="text-primary hover:underline">{q.email}</a>
+                        <span>&bull;</span>
+                        <span>{q.createdAt ? format(new Date(q.createdAt), "MMM d, yyyy 'at' h:mm a") : ""}</span>
+                      </div>
+                    </div>
+                    <Badge variant={q.status === "pending" ? "destructive" : "default"}>
+                      {q.status === "pending" ? "Awaiting Reply" : "Answered"}
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-4 space-y-4">
+                  <div className="bg-card text-sm p-4 rounded-md border text-card-foreground whitespace-pre-wrap">
+                    {q.message}
+                  </div>
+
+                  {q.adminReply ? (
+                    <div className="bg-primary/5 p-4 rounded-md border border-primary/10">
+                      <p className="text-xs font-semibold text-primary mb-2 uppercase tracking-wider">Your Reply</p>
+                      <p className="text-sm text-foreground whitespace-pre-wrap">{q.adminReply}</p>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        {q.updatedAt ? `Replied on ${format(new Date(q.updatedAt), "MMM d, yyyy")}` : ""}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 pt-2">
+                      <h4 className="text-sm font-medium">Respond to Inquiry</h4>
+                      <Textarea
+                        placeholder="Write your email reply here. The user will receive this as an email notification..."
+                        rows={4}
+                        value={replyQueryId === q.id ? replyQueryText : ""}
+                        onChange={(e) => {
+                          setReplyQueryId(q.id);
+                          setReplyQueryText(e.target.value);
+                        }}
+                        className="resize-none"
+                        disabled={replyQueryMutation.isPending && replyQueryId === q.id}
+                      />
+                      <div className="flex justify-end">
+                        <Button
+                          size="sm"
+                          className="w-full sm:w-auto flex items-center gap-2"
+                          disabled={!replyQueryText.trim() || replyQueryId !== q.id || replyQueryMutation.isPending}
+                          onClick={() => replyQueryMutation.mutate({ id: q.id, reply: replyQueryText })}
+                        >
+                          {replyQueryMutation.isPending && replyQueryId === q.id ? (
+                            <><Loader2 className="w-4 h-4 animate-spin" /> Sending...</>
+                          ) : (
+                            <><Send className="w-4 h-4" /> Send Email Reply</>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-4">
+                <Mail className="w-6 h-6 text-muted-foreground" />
+              </div>
+              <h3 className="text-lg font-medium mb-1">No Inquiries Found</h3>
+              <p className="text-muted-foreground text-sm max-w-sm mx-auto">
+                When public users fill out the contact form, their queries will appear here.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    );
+  }
+
+  function renderSiteSettings() {
+    return (
+      <div className="space-y-4">
+        <div>
+          <h1 className="text-2xl font-semibold">Site Settings</h1>
+          <p className="text-sm text-muted-foreground mt-1">Manage global site configuration</p>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Global Contact Details</CardTitle>
+            <CardDescription>
+              Update the contact information displayed publicly on the Contact Us landing page.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {loadingSettings ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  settingsMutation.mutate(settingsForm);
+                }}
+                className="space-y-6 max-w-lg"
+              >
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium flex items-center gap-2">
+                      <Mail className="w-4 h-4 text-muted-foreground" />
+                      Support Email
+                    </label>
+                    <Input
+                      type="email"
+                      value={settingsForm.contactEmail || siteSettings?.contactEmail || ""}
+                      onChange={(e) => setSettingsForm(p => ({ ...p, contactEmail: e.target.value }))}
+                      placeholder="support@pixel-prompt.app"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium flex items-center gap-2">
+                      <Phone className="w-4 h-4 text-muted-foreground" />
+                      Business Phone
+                    </label>
+                    <Input
+                      type="text"
+                      value={settingsForm.contactPhone || siteSettings?.contactPhone || ""}
+                      onChange={(e) => setSettingsForm(p => ({ ...p, contactPhone: e.target.value }))}
+                      placeholder="+1 (555) 000-0000"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-muted-foreground" />
+                      Physical Address
+                    </label>
+                    <Input
+                      type="text"
+                      value={settingsForm.contactAddress || siteSettings?.contactAddress || ""}
+                      onChange={(e) => setSettingsForm(p => ({ ...p, contactAddress: e.target.value }))}
+                      placeholder="123 Builder Lane, Tech District"
+                    />
+                  </div>
+                </div>
+
+                <Button
+                  type="submit"
+                  disabled={settingsMutation.isPending}
+                  className="w-full sm:w-auto"
+                >
+                  {settingsMutation.isPending ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</>
+                  ) : "Save Changes"}
+                </Button>
+              </form>
+            )}
+          </CardContent>
+        </Card>
       </div>
     );
   }

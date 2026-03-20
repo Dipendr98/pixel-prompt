@@ -16,7 +16,7 @@ import AdminSubmissions from "@/pages/admin-submissions";
 import MySubmissions from "@/pages/my-submissions";
 import Support from "@/pages/support";
 import Contact from "@/pages/contact";
-import AdminCrm from "@/pages/admin-crm";
+
 import NotFound from "@/pages/not-found";
 import AgentPage from "@/pages/agent";
 import ForgotPassword from "@/pages/forgot-password";
@@ -85,9 +85,7 @@ function Router() {
       <Route path="/admin/submissions">
         <ProtectedRoute component={AdminSubmissions} />
       </Route>
-      <Route path="/admin/crm">
-        <ProtectedRoute component={AdminCrm} />
-      </Route>
+
       <Route path="/submissions">
         <ProtectedRoute component={MySubmissions} />
       </Route>
