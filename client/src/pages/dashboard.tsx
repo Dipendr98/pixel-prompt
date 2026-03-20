@@ -16,7 +16,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  Plus, Layers, MoreVertical, Pencil, Trash2, CreditCard, LifeBuoy, Send, ShieldCheck,
+  Plus, Layers, MoreVertical, Pencil, Trash2, CreditCard, LifeBuoy, Send,
   Loader2, FolderOpen, ShoppingBag, Rocket, Briefcase, UtensilsCrossed, Building2,
   BookOpen, Calendar, GraduationCap, User, FileText, Sparkles, Zap, Crown,
 } from "lucide-react";
@@ -482,19 +482,7 @@ export default function Dashboard() {
             <Button variant="ghost" size="sm" onClick={() => navigate("/submissions")}>
               <Send className="w-4 h-4 mr-1" /> Submissions
             </Button>
-            {user?.role !== "admin" && (
-              <Button variant="outline" size="sm" onClick={async () => {
-                await fetch("/api/dev/make-admin", { method: "POST" });
-                window.location.reload();
-              }} className="border-primary/50 text-primary">
-                <ShieldCheck className="w-4 h-4 mr-1" /> Become Admin
-              </Button>
-            )}
-            {user?.role === "admin" && (
-              <Button variant="ghost" size="sm" onClick={() => navigate("/admin/submissions")}>
-                <ShieldCheck className="w-4 h-4 mr-1" /> Admin
-              </Button>
-            )}
+
             <Button variant="outline" size="sm" onClick={() => logout()}>
               Log out
             </Button>

@@ -447,6 +447,7 @@ export default function AdminSubmissions() {
         ) : filteredUsers && filteredUsers.length > 0 ? (
           <div className="space-y-2">
             {filteredUsers.map((u) => {
+              const isSelf = !!user?.id && u.id === user.id;
               const userProjectCount = allProjects?.filter(p => p.userEmail === u.email).length ?? 0;
               const userSub = allSubscriptions?.find(s => s.userEmail === u.email);
               return (
@@ -469,7 +470,11 @@ export default function AdminSubmissions() {
                       <div className="flex items-center gap-2 shrink-0">
                         <Select
                           value={u.role}
-                          onValueChange={(role) => toggleRoleMutation.mutate({ userId: u.id, role })}
+                          disabled={isSelf}
+                          onValueChange={(role) => {
+                            if (isSelf) return;
+                            toggleRoleMutation.mutate({ userId: u.id, role });
+                          }}
                         >
                           <SelectTrigger className="w-24" data-testid={`select-role-${u.id}`}>
                             <SelectValue />
