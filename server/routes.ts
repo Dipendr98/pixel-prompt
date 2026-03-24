@@ -9,7 +9,13 @@ import type { ProjectData, PageData } from "@shared/schema";
 import path from "path";
 import fs from "fs";
 import { sendPaymentConfirmationEmail, sendPaymentSuccessEmail, sendQueryNotificationToAdmin, sendQueryResponseToUser, sendTicketNotificationToAdmin, sendTicketResponseToUser } from "./mail";
-import { orchestrate, parseCVText, buildPortfolioBlocksFromCV, type ProgressEvent as OrchestratorEvent } from "./ai/orchestrator.js";
+import {
+  orchestrate,
+  parseCVText,
+  buildPortfolioBlocksFromCV,
+  type ProgressEvent as OrchestratorEvent,
+  type OrchestrationContext,
+} from "./ai/orchestrator.js";
 
 // ── Credit system constants ───────────────────────────────────────────────────
 // Free plan is intentionally small so the Pro upgrade happens quickly.
@@ -181,10 +187,24 @@ export async function registerRoutes(
   app.post("/api/ai", requireAuth, async (req, res) => {
     try {
       const userId = req.user!.id;
-      const { prompt } = req.body;
+      const { prompt, currentPageName, targetPageName, siteSummary } = req.body;
       if (!prompt || typeof prompt !== "string") {
         return res.status(400).json({ message: "Prompt required (must be a string)" });
       }
+
+      const orchestrationCtx: OrchestrationContext | undefined = (() => {
+        const c: OrchestrationContext = {};
+        if (typeof currentPageName === "string" && currentPageName.trim()) {
+          c.currentPageName = currentPageName.trim();
+        }
+        if (typeof targetPageName === "string" && targetPageName.trim()) {
+          c.targetPageName = targetPageName.trim();
+        }
+        if (typeof siteSummary === "string" && siteSummary.trim()) {
+          c.siteSummary = siteSummary.trim().slice(0, 4000);
+        }
+        return Object.keys(c).length > 0 ? c : undefined;
+      })();
 
       const sub = await storage.getSubscription(userId);
       const isPro = sub?.status === "active";
@@ -237,7 +257,7 @@ export async function registerRoutes(
         };
 
         try {
-          const result = await orchestrate(prompt, writeEvent);
+          const result = await orchestrate(prompt, writeEvent, orchestrationCtx);
           // Only deduct usage credit after successful generation
           const today = new Date().toISOString().split("T")[0];
           await storage.incrementAiUsage(userId, today);
@@ -261,7 +281,7 @@ export async function registerRoutes(
         }
       } else {
         // ── Classic mode: collect all progress, return final JSON ─────────
-        const result = await orchestrate(prompt);
+        const result = await orchestrate(prompt, undefined, orchestrationCtx);
         const today = new Date().toISOString().split("T")[0];
         await storage.incrementAiUsage(userId, today);
         res.json({ message: result.message, blocks: result.blocks, plan: result.plan });

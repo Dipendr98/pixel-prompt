@@ -428,3 +428,144 @@ ${body}
 </body>
 </html>`;
 }
+
+/** Minimal page shape for multi-page preview */
+export type PreviewPageInput = { path: string; blocks: ComponentBlock[] };
+
+/** Canonical path key for preview routing: `/`, `/about`, … */
+export function normalizePreviewPath(path: string): string {
+  let p = (path || "/").trim().toLowerCase();
+  if (!p || p === "/") return "/";
+  if (!p.startsWith("/")) p = `/${p}`;
+  p = p.replace(/\/+$/g, "");
+  return p || "/";
+}
+
+/**
+ * Full-site preview in one iframe: click navbar/footer links to switch pages
+ * (intercepts index.html, *.html, and same-site paths that match a project page).
+ */
+export function buildMultiPagePreviewHtml(
+  pages: PreviewPageInput[],
+  settings: ProjectSettings = {},
+  title = "Preview",
+  initialPath?: string
+): string {
+  const list = pages.length > 0 ? pages : [{ path: "/", blocks: [] as ComponentBlock[] }];
+  const css = generatePreviewCSS(settings);
+  const initial = normalizePreviewPath(initialPath ?? list[0]?.path ?? "/");
+
+  const pagesHtml = list
+    .map((pg) => {
+      const key = normalizePreviewPath(pg.path);
+      const inner =
+        pg.blocks.length > 0
+          ? pg.blocks.map(generatePreviewBlockHtml).join("\n")
+          : `<div style="min-height:40vh;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:0.9rem">Empty page — add blocks in the editor.</div>`;
+      return `<div class="pp-preview-page" data-pp-path="${escHtml(key)}" hidden style="display:none">${inner}</div>`;
+    })
+    .join("\n");
+
+  const initialJson = JSON.stringify(initial);
+
+  const routerScript = `
+(function(){
+  var initial = ${initialJson};
+  function normPath(p) {
+    p = String(p || '/').trim().toLowerCase();
+    if (!p || p === '/') return '/';
+    if (p.charAt(0) !== '/') p = '/' + p;
+    p = p.replace(/\\/+/g, '/').replace(/\\/$/, '');
+    return p || '/';
+  }
+  function normHref(href) {
+    if (!href) return null;
+    var h = String(href).trim();
+    if (h === '#' || h === '') return null;
+    if (/^https?:\\/\\//i.test(h)) return null;
+    if (h.charAt(0) === '#' && h.indexOf('pp=') !== 1) return null;
+    if (h === 'index.html' || h === './index.html' || h === '/') return '/';
+    var m = h.match(/^\\.?\\/?([\\w-]+)\\.html$/i);
+    if (m) {
+      if (m[1].toLowerCase() === 'index') return '/';
+      return '/' + m[1].toLowerCase();
+    }
+    if (h.charAt(0) === '/') {
+      var x = h.replace(/\\/+$/g, '').toLowerCase();
+      return x === '' ? '/' : x;
+    }
+    return null;
+  }
+  var roots = Array.from(document.querySelectorAll('.pp-preview-page'));
+  function hasPage(k) {
+    k = normPath(k);
+    return roots.some(function(el) { return normPath(el.getAttribute('data-pp-path')) === k; });
+  }
+  function show(key) {
+    var k = normPath(key);
+    if (!hasPage(k)) k = initial;
+    roots.forEach(function(el) {
+      var ep = normPath(el.getAttribute('data-pp-path'));
+      var on = ep === k;
+      el.hidden = !on;
+      el.style.display = on ? 'block' : 'none';
+    });
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'pixelprompt-preview-nav', path: k }, '*');
+      }
+    } catch (e) {}
+    runAnimations();
+  }
+  var animObs = null;
+  function runAnimations() {
+    if (animObs) animObs.disconnect();
+    animObs = new IntersectionObserver(function(entries) {
+      entries.forEach(function(e) {
+        if (e.isIntersecting) {
+          var a = e.target.getAttribute('data-animate');
+          if (a) e.target.classList.add('animate-' + a);
+          animObs.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.08 });
+    document.querySelectorAll('.pp-preview-page:not([hidden]) [data-animate]').forEach(function(el) {
+      animObs.observe(el);
+    });
+  }
+  document.addEventListener('click', function(e) {
+    var a = e.target.closest('a[href]');
+    if (!a) return;
+    var nk = normHref(a.getAttribute('href'));
+    if (nk === null) return;
+    if (!hasPage(nk)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    location.hash = 'pp=' + encodeURIComponent(nk);
+    show(nk);
+  }, true);
+  window.addEventListener('hashchange', function() {
+    var m = location.hash.match(/pp=([^&]+)/);
+    if (m) show(decodeURIComponent(m[1]));
+  });
+  var m0 = location.hash.match(/pp=([^&]+)/);
+  show(m0 ? decodeURIComponent(m0[1]) : initial);
+})();
+`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escHtml(title)}</title>
+  <style>${css}</style>
+</head>
+<body>
+<div id="pp-preview-root">
+${pagesHtml}
+</div>
+<script>${routerScript}</script>
+</body>
+</html>`;
+}

@@ -46,6 +46,7 @@ type StreamEvent =
   | { type: "phase_end"; phase: string; message: string; data?: unknown }
   | { type: "task_update"; task: AgentTask }
   | { type: "log"; message: string }
+  | { type: "thinking"; phase: "intent" | "structure"; summary: string; bullets?: string[] }
   | { type: "error"; message: string; fatal?: boolean }
   | { type: "complete"; blocks: ComponentBlock[]; message: string; plan?: { intent: string } };
 
@@ -61,6 +62,8 @@ interface Message {
   progressPercent?: number;
   plan?: { intent: string };
   blockCount?: number;
+  thinkingIntent?: { summary: string; bullets?: string[] };
+  thinkingStructure?: { summary: string; bullets?: string[] };
 }
 
 // ── Phase metadata ────────────────────────────────────────────────────────────
@@ -70,8 +73,8 @@ const PHASES: Record<PhaseName, {
 }> = {
   discover: {
     icon: Brain,
-    label: "Discovery",
-    sublabel: "Analyzes audience, goal & narrative",
+    label: "Understand",
+    sublabel: "Figures out what you want before designing",
     color: "text-orange-400",
     bg: "bg-orange-500/10",
     border: "border-orange-500/20",
@@ -79,8 +82,8 @@ const PHASES: Record<PhaseName, {
   },
   plan: {
     icon: Brain,
-    label: "Planner",
-    sublabel: "Architects the page structure",
+    label: "Plan",
+    sublabel: "Locks page structure to that intent",
     color: "text-violet-400",
     bg: "bg-violet-500/10",
     border: "border-violet-500/20",
@@ -156,6 +159,38 @@ function AgentMessage({
       </div>
 
       <div className="flex-1 min-w-0 space-y-2">
+        {msg.thinkingIntent && (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.07] px-3 py-2 space-y-1.5">
+            <div className="text-[10px] uppercase tracking-wide text-amber-700 dark:text-amber-400 font-semibold">
+              1 · What you want
+            </div>
+            <p className="text-sm font-medium leading-snug">{msg.thinkingIntent.summary}</p>
+            {msg.thinkingIntent.bullets && msg.thinkingIntent.bullets.length > 0 && (
+              <ul className="text-xs text-muted-foreground list-disc pl-4 space-y-0.5">
+                {msg.thinkingIntent.bullets.map((b, i) => (
+                  <li key={i}>{b}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {msg.thinkingStructure && (
+          <div className="rounded-lg border border-violet-500/30 bg-violet-500/[0.07] px-3 py-2 space-y-1.5">
+            <div className="text-[10px] uppercase tracking-wide text-violet-700 dark:text-violet-400 font-semibold">
+              2 · Plan (then build)
+            </div>
+            <p className="text-sm font-medium leading-snug">{msg.thinkingStructure.summary}</p>
+            {msg.thinkingStructure.bullets && msg.thinkingStructure.bullets.length > 0 && (
+              <ul className="text-xs text-muted-foreground list-disc pl-4 space-y-0.5">
+                {msg.thinkingStructure.bullets.map((b, i) => (
+                  <li key={i}>{b}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
         {/* Agent tasks */}
         {msg.tasks && msg.tasks.length > 0 && (
           <div className="space-y-1.5">
@@ -462,6 +497,14 @@ export default function AgentPage() {
 
             case "log":
               updateMsg((m) => ({ ...m, logs: [...(m.logs ?? []), event.message] }));
+              break;
+
+            case "thinking":
+              updateMsg((m) =>
+                event.phase === "intent"
+                  ? { ...m, thinkingIntent: { summary: event.summary, bullets: event.bullets } }
+                  : { ...m, thinkingStructure: { summary: event.summary, bullets: event.bullets } }
+              );
               break;
 
             case "error":

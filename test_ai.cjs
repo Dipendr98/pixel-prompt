@@ -6,13 +6,13 @@ async function testPrompt() {
         messages: [
             {
                 role: "system",
-                content: \`You are an expert web developer and UI designer for a drag-and-drop website builder.
+                content: `You are an expert web developer and UI designer for a drag-and-drop website builder.
 When given a user description, generate a complete, high-quality website layout (maximum 9 blocks).
 
 CRITICAL SPEED OPTIMIZATIONS:
 1. You MUST return aggressively MINIFIED JSON. Absolutely NO spaces, NO newlines, NO pretty-printing.
 2. Keep all generated text copy extremely punchy and short (maximum 8-10 words per text field).
-3. Do NOT include markdown formatting like \\\`\\\`\\\`json. Return ONLY the raw JSON array starting with '[' and ending with ']'.
+3. Do NOT include markdown formatting like \`\`\`json. Return ONLY the raw JSON array starting with '[' and ending with ']'.
 
 Each block must follow this exact format:
 {"id":"8charstr","type":"blocktype","props":{...},"style":{"animation":"...","backgroundColor":"...","textColor":"...","padding":"...","borderRadius":"...","customCss":"..."}}
@@ -26,7 +26,7 @@ Your design tasks:
 - footer: {columns: [{title, links: [string]}], copyright}
 - features: {features: [{title, desc}]}
 
-Return ONLY the minified JSON array.\`
+Return ONLY the minified JSON array.`
       },
       { role: "user", content: "Make me a colorful, animated landing page for a modern high-end sneaker brand with dark mode and neon accents" }
     ],
@@ -52,8 +52,8 @@ Return ONLY the minified JSON array.\`
     console.log(content.substring(0, 500) + "...");
     
     // Parse logic from routes.ts
-    const cleanContent = content.replace(/<think>[\\s\\S]*?<\\/think>/gi, "").trim();
-    const jsonMatch = cleanContent.match(/\\[[\\s\\S]*\\]/);
+    const cleanContent = content.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+    const jsonMatch = cleanContent.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
       console.error("FAILED MATCH: Did not find [ ] array boundaries.");
       return;

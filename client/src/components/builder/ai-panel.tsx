@@ -30,6 +30,7 @@ type StreamEvent =
   | { type: "phase_end"; phase: string; message: string; data?: unknown }
   | { type: "task_update"; task: AgentTask }
   | { type: "log"; message: string }
+  | { type: "thinking"; phase: "intent" | "structure"; summary: string; bullets?: string[] }
   | { type: "error"; message: string; fatal?: boolean }
   | { type: "complete"; blocks: ComponentBlock[]; message: string; plan?: { intent: string } };
 
@@ -43,12 +44,20 @@ interface Message {
   isStreaming?: boolean;
   error?: boolean;
   progressPercent?: number;
+  /** After discovery: what the agent understood the user wants */
+  thinkingIntent?: { summary: string; bullets?: string[] };
+  /** After plan: structure locked before codegen */
+  thinkingStructure?: { summary: string; bullets?: string[] };
 }
 
 interface AiPanelProps {
   onApplyBlocks: (blocks: ComponentBlock[]) => void;
   onApplyBlocksToPage?: (pageName: string, blocks: ComponentBlock[]) => void;
   projectId: string;
+  /** Selected page in the builder — helps the agent avoid repeating the wrong layout */
+  currentPageName?: string;
+  /** Short outline of existing pages and block types for multi-page continuity */
+  siteSummary?: string;
 }
 
 // ── Agent phase metadata ──────────────────────────────────────────────────────
@@ -58,7 +67,7 @@ const PHASE_META: Record<PhaseName, {
 }> = {
   discover: {
     icon: Brain,
-    label: "Discovery",
+    label: "Understand",
     color: "text-orange-400",
     bg: "bg-orange-500/10",
     border: "border-orange-500/20",
@@ -66,7 +75,7 @@ const PHASE_META: Record<PhaseName, {
   },
   plan: {
     icon: Brain,
-    label: "Planner",
+    label: "Plan",
     color: "text-violet-400",
     bg: "bg-violet-500/10",
     border: "border-violet-500/20",
@@ -144,12 +153,34 @@ function extractTargetPageName(prompt: string): string | null {
     return cleaned;
   }
 
+  // Natural phrasing: "create about page", "make a contact page", "build projects page"
+  const verb = raw.match(
+    /(?:create|make|build|add|generate|design)\s+(?:a\s+|an\s+|the\s+)?(about|contact|projects?|project|work|services?|pricing|blog|home)\s+page\b/i
+  );
+  if (verb) {
+    const w = verb[1].toLowerCase();
+    if (w === "project" || w === "projects" || w === "work") return "Projects";
+    if (w === "service" || w === "services") return "Services";
+    if (w === "home") return "Home";
+    return w.charAt(0).toUpperCase() + w.slice(1);
+  }
+
+  if (/\babout\s+page\b/i.test(raw)) return "About";
+  if (/\bcontact\s+page\b/i.test(raw)) return "Contact";
+  if (/\bprojects?\s+page\b/i.test(raw) || /\bwork\s+page\b/i.test(raw)) return "Projects";
+
   return null;
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-export function AiPanel({ onApplyBlocks, onApplyBlocksToPage, projectId }: AiPanelProps) {
+export function AiPanel({
+  onApplyBlocks,
+  onApplyBlocksToPage,
+  projectId,
+  currentPageName,
+  siteSummary,
+}: AiPanelProps) {
   const { isPro } = useAuth();
   const { toast } = useToast();
   const [messages, setMessages] = useState<Message[]>([
@@ -158,7 +189,9 @@ export function AiPanel({ onApplyBlocks, onApplyBlocksToPage, projectId }: AiPan
       role: "assistant",
       content:
         "Hi! I'm your multi-agent AI assistant.\n\n" +
-        "Describe what you want to build, or upload your CV to auto-build a portfolio!",
+        "Describe what you want to build, or upload your CV to auto-build a portfolio.\n\n" +
+        "For extra pages, say things like \"create an About page\" or \"make a Contact page\" — I'll match the layout to that page, not copy your Home hero.\n\n" +
+        "I think first (what you want → plan), then generate blocks.",
     },
   ]);
   const [input, setInput] = useState("");
@@ -228,7 +261,13 @@ export function AiPanel({ onApplyBlocks, onApplyBlocksToPage, projectId }: AiPan
           "Content-Type": "application/json",
           Accept: "application/x-ndjson",
         },
-        body: JSON.stringify({ prompt, projectId }),
+        body: JSON.stringify({
+          prompt,
+          projectId,
+          currentPageName: currentPageName?.trim() || undefined,
+          targetPageName: targetPageName ?? undefined,
+          siteSummary: siteSummary?.trim() || undefined,
+        }),
         signal: abortRef.current.signal,
         credentials: "include",
       });
@@ -309,6 +348,20 @@ export function AiPanel({ onApplyBlocks, onApplyBlocksToPage, projectId }: AiPan
               updateAgentMsg((m) => ({ ...m, content: logLines.join("\n") }));
               break;
 
+            case "thinking":
+              updateAgentMsg((m) =>
+                event.phase === "intent"
+                  ? {
+                      ...m,
+                      thinkingIntent: { summary: event.summary, bullets: event.bullets },
+                    }
+                  : {
+                      ...m,
+                      thinkingStructure: { summary: event.summary, bullets: event.bullets },
+                    }
+              );
+              break;
+
             case "error":
               logLines.push(`❌ ${event.message}`);
               updateAgentMsg((m) => ({
@@ -352,7 +405,7 @@ export function AiPanel({ onApplyBlocks, onApplyBlocksToPage, projectId }: AiPan
       setIsGenerating(false);
       abortRef.current = null;
     }
-  }, [input, isGenerating, projectId]);
+  }, [input, isGenerating, projectId, currentPageName, siteSummary]);
 
   const handleCancel = () => {
     abortRef.current?.abort();
@@ -442,6 +495,38 @@ export function AiPanel({ onApplyBlocks, onApplyBlocksToPage, projectId }: AiPan
 
               <div className={`max-w-[90%] space-y-2 ${msg.role === "user" ? "text-right" : ""}`}>
                 {/* Message bubble */}
+                {msg.thinkingIntent && (
+                  <div className="rounded-md border border-amber-500/30 bg-amber-500/[0.07] px-3 py-2 text-left space-y-1.5 max-w-full">
+                    <div className="text-[10px] uppercase tracking-wide text-amber-700 dark:text-amber-400 font-semibold">
+                      1 · What you want
+                    </div>
+                    <p className="text-sm font-medium text-foreground leading-snug">{msg.thinkingIntent.summary}</p>
+                    {msg.thinkingIntent.bullets && msg.thinkingIntent.bullets.length > 0 && (
+                      <ul className="text-xs text-muted-foreground list-disc pl-4 space-y-0.5">
+                        {msg.thinkingIntent.bullets.map((b, i) => (
+                          <li key={i}>{b}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+
+                {msg.thinkingStructure && (
+                  <div className="rounded-md border border-violet-500/30 bg-violet-500/[0.07] px-3 py-2 text-left space-y-1.5 max-w-full">
+                    <div className="text-[10px] uppercase tracking-wide text-violet-700 dark:text-violet-400 font-semibold">
+                      2 · Plan (then build)
+                    </div>
+                    <p className="text-sm font-medium text-foreground leading-snug">{msg.thinkingStructure.summary}</p>
+                    {msg.thinkingStructure.bullets && msg.thinkingStructure.bullets.length > 0 && (
+                      <ul className="text-xs text-muted-foreground list-disc pl-4 space-y-0.5">
+                        {msg.thinkingStructure.bullets.map((b, i) => (
+                          <li key={i}>{b}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+
                 <div
                   className={`text-sm rounded-md px-3 py-2 inline-block text-left whitespace-pre-wrap ${
                     msg.role === "user"

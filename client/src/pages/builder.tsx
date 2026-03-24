@@ -1,11 +1,11 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useParams, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Project, ComponentBlock, PageData, ProjectData, ProjectSettings } from "@shared/schema";
 import { migrateProjectSchema } from "@shared/schema";
-import { buildPreviewHtml } from "@/lib/preview";
+import { buildMultiPagePreviewHtml, normalizePreviewPath } from "@/lib/preview";
 import {
   DndContext,
   closestCenter,
@@ -435,6 +435,8 @@ export default function Builder() {
   const [showWelcomeDialog, setShowWelcomeDialog] = useState(true);
   const [showPreview, setShowPreview] = useState(false);
   const [previewHtml, setPreviewHtml] = useState("");
+  /** Path shown in preview chrome + updated when user clicks internal links in the iframe */
+  const [previewNavPath, setPreviewNavPath] = useState("/");
 
   const saveTimeoutRef = useRef<any>(null);
   const initialLoadRef = useRef(false);
@@ -442,6 +444,16 @@ export default function Builder() {
   const { data: project, isLoading, error } = useQuery<Project>({
     queryKey: ["/api/projects", projectId],
   });
+
+  useEffect(() => {
+    const onPreviewMsg = (e: MessageEvent) => {
+      if (e.data?.type === "pixelprompt-preview-nav" && typeof e.data.path === "string") {
+        setPreviewNavPath(e.data.path);
+      }
+    };
+    window.addEventListener("message", onPreviewMsg);
+    return () => window.removeEventListener("message", onPreviewMsg);
+  }, []);
 
   useEffect(() => {
     if (!projectId) {
@@ -473,6 +485,18 @@ export default function Builder() {
 
   const currentPage = projectData.pages.find((p) => p.id === currentPageId) || projectData.pages[0];
   const blocks = currentPage?.blocks || [];
+
+  const aiSiteSummary = useMemo(() => {
+    return projectData.pages
+      .map((p) => {
+        const types = p.blocks
+          .slice(0, 12)
+          .map((b) => b.type)
+          .join(",");
+        return `${p.name}(${types || "empty"})`;
+      })
+      .join(" | ");
+  }, [projectData.pages]);
 
   const pushHistory = useCallback((newData: ProjectData) => {
     setHistory((prev) => {
@@ -859,7 +883,14 @@ export default function Builder() {
               className="gap-1.5"
               title="Preview your website"
               onClick={() => {
-                const html = buildPreviewHtml(blocks, projectData.settings || {}, project?.name || "Preview");
+                const initPath = normalizePreviewPath(currentPage?.path || "/");
+                setPreviewNavPath(initPath);
+                const html = buildMultiPagePreviewHtml(
+                  projectData.pages.map((p) => ({ path: p.path, blocks: p.blocks })),
+                  projectData.settings || {},
+                  project?.name || "Preview",
+                  initPath
+                );
                 setPreviewHtml(html);
                 setShowPreview(true);
               }}
@@ -979,7 +1010,13 @@ export default function Builder() {
                 {currentPage && <SeoSettingsPanel page={currentPage} onChange={updatePageSeo} />}
               </TabsContent>
               <TabsContent value="ai" className="flex-1 mt-0 overflow-hidden data-[state=inactive]:hidden" forceMount>
-                <AiPanel onApplyBlocks={handleApplyAiBlocks} onApplyBlocksToPage={handleApplyAiBlocksToPage} projectId={projectId} />
+                <AiPanel
+                  onApplyBlocks={handleApplyAiBlocks}
+                  onApplyBlocksToPage={handleApplyAiBlocksToPage}
+                  projectId={projectId || ""}
+                  currentPageName={currentPage?.name}
+                  siteSummary={aiSiteSummary}
+                />
               </TabsContent>
             </Tabs>
           </div>
@@ -1060,17 +1097,28 @@ export default function Builder() {
               <span className="w-3 h-3 rounded-full bg-green-400/70" />
             </div>
             {/* URL bar */}
-            <div className="flex-1 flex items-center gap-2 bg-muted rounded-md px-3 py-1.5 text-xs text-muted-foreground">
+            <div className="flex-1 flex items-center gap-2 bg-muted rounded-md px-3 py-1.5 text-xs text-muted-foreground min-w-0">
               <Globe className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate">{project?.name ?? "Your Website"} — Live Preview</span>
+              <span className="truncate font-mono" title="Preview route — use Home / About / Contact in the navbar to switch pages">
+                {(project?.name ?? "site").replace(/\s+/g, "-").toLowerCase()}.local
+                {previewNavPath}
+              </span>
             </div>
             <Button
               variant="ghost"
               size="sm"
               className="gap-1.5 h-7 text-xs"
               onClick={() => {
-                const html = buildPreviewHtml(blocks, projectData.settings || {}, project?.name || "Preview");
-                setPreviewHtml(html);
+                const initPath = normalizePreviewPath(currentPage?.path || "/");
+                setPreviewNavPath(initPath);
+                setPreviewHtml(
+                  buildMultiPagePreviewHtml(
+                    projectData.pages.map((p) => ({ path: p.path, blocks: p.blocks })),
+                    projectData.settings || {},
+                    project?.name || "Preview",
+                    initPath
+                  )
+                );
               }}
               title="Refresh preview"
             >

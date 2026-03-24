@@ -47,6 +47,13 @@ export interface DiscoveryResult {
   colorPsychology: string;
   contentTone: string;
   personalization: string;
+  /** When the model follows extended discovery schema */
+  pageRole?: string;
+  pageScope?: string;
+  /** Plain-language commitment: what the user wants built (filled in discovery, step before design) */
+  whatUserWants?: string;
+  /** Why the model interpreted the request that way */
+  whyThisInterpretation?: string[];
 }
 
 export interface PlanResult {
@@ -74,6 +81,7 @@ export type ProgressEvent =
   | { type: "phase_end"; phase: string; message: string; data?: unknown }
   | { type: "task_update"; task: AgentTask }
   | { type: "log"; message: string }
+  | { type: "thinking"; phase: "intent" | "structure"; summary: string; bullets?: string[] }
   | { type: "error"; message: string; fatal?: boolean };
 
 export type ProgressCallback = (event: ProgressEvent) => void;
@@ -98,6 +106,208 @@ const VALID_TYPES = new Set([
   "process-steps", "service-card", "menu-grid", "event-schedule", "course-card", "comparison-table",
 ]);
 
+/** Builder/API context so the model knows this is a multi-page project, not a greenfield homepage. */
+export type PageRole =
+  | "home"
+  | "about"
+  | "contact"
+  | "projects"
+  | "services"
+  | "pricing"
+  | "blog"
+  | "legal"
+  | "landing"
+  | "other";
+
+export interface OrchestrationContext {
+  /** Page currently selected in the builder UI */
+  currentPageName?: string;
+  /** Client-detected target (e.g. "About" from "create about page") */
+  targetPageName?: string;
+  /** Compact outline: page names + block types already on the site */
+  siteSummary?: string;
+}
+
+function roleFromTargetPageName(name: string): PageRole | null {
+  const n = name.trim().toLowerCase();
+  if (!n) return null;
+  if (n === "about" || n.startsWith("about ")) return "about";
+  if (n === "contact") return "contact";
+  if (n === "projects" || n === "project" || n === "work") return "projects";
+  if (n === "services" || n === "service") return "services";
+  if (n === "pricing") return "pricing";
+  if (n === "blog") return "blog";
+  if (n === "privacy" || n === "terms" || n === "legal") return "legal";
+  if (n === "home") return "home";
+  return null;
+}
+
+function inferPageRole(
+  prompt: string,
+  targetPageName?: string,
+  currentPageName?: string
+): PageRole {
+  const fromTarget = targetPageName ? roleFromTargetPageName(targetPageName) : null;
+  if (fromTarget) return fromTarget;
+
+  const p = prompt.toLowerCase();
+  if (/(?:create|make|build|add|generate|design)\s+(?:an?\s+|the\s+)?about\s+page\b/.test(p)) return "about";
+  if (/(?:create|make|build|add|generate|design)\s+(?:an?\s+|the\s+)?contact\s+page\b/.test(p)) return "contact";
+  if (/(?:create|make|build|add|generate|design)\s+(?:an?\s+|the\s+)?(projects?|work)\s+page\b/.test(p)) return "projects";
+  if (/(?:create|make|build|add|generate|design)\s+(?:an?\s+|the\s+)?services?\s+page\b/.test(p)) return "services";
+  if (/(?:create|make|build|add|generate|design)\s+(?:an?\s+|the\s+)?pricing\s+page\b/.test(p)) return "pricing";
+  if (/(?:create|make|build|add|generate|design)\s+(?:an?\s+|the\s+)?blog\s+page\b/.test(p)) return "blog";
+  if (/\babout\s+page\b/.test(p) && /\bcontact\s+page\b/.test(p)) return "other";
+  if (/\babout\s+page\b/.test(p)) return "about";
+  if (/\bcontact\s+page\b/.test(p)) return "contact";
+  if (/\bprojects?\s+page\b/.test(p) || /\bwork\s+page\b/.test(p)) return "projects";
+
+  const cur = (currentPageName || "").trim().toLowerCase();
+  if (cur && /\b(?:this|the)\s+page\b/.test(p)) {
+    const r = roleFromTargetPageName(currentPageName || "");
+    if (r) return r;
+  }
+
+  return "home";
+}
+
+function buildOrchestrationContextPrefix(ctx: OrchestrationContext | undefined, role: PageRole): string {
+  const parts: string[] = ["<pixelprompt_builder_context>"];
+  parts.push(`<inferred_page_role>${role}</inferred_page_role>`);
+  if (ctx?.currentPageName) parts.push(`<current_page_in_editor>${ctx.currentPageName}</current_page_in_editor>`);
+  if (ctx?.targetPageName) parts.push(`<user_target_page_name>${ctx.targetPageName}</user_target_page_name>`);
+  if (ctx?.siteSummary) parts.push(`<existing_site_outline>${ctx.siteSummary}</existing_site_outline>`);
+
+  if (role === "about") {
+    parts.push(
+      `<page_type_rules priority="critical">
+THIS IS AN ABOUT PAGE — NOT A HOMEPAGE. Do NOT repeat the Home landing pattern (generic "Crafting solutions" dev hero + full skills-grid + project grid).
+Use a personal headline (e.g. "About [Name]" or "My Story"), biography, values or journey, credibility (timeline/stats), optional testimonials, then a soft CTA. Reuse brand/colors from the site outline for consistency but change layout and copy completely.
+</page_type_rules>`
+    );
+  } else if (role === "contact") {
+    parts.push(
+      `<page_type_rules priority="critical">
+THIS IS A CONTACT PAGE. Prioritize contact-form, optional map, social-links, office hours or FAQ for scheduling. Minimal hero (page title + one line). Do NOT fill the page with project-card, skills-grid, or a second homepage hero.
+</page_type_rules>`
+    );
+  } else if (role === "projects") {
+    parts.push(
+      `<page_type_rules priority="critical">
+THIS IS A PROJECTS / WORK PAGE. Lead with project-card (case studies), optional stats, filter narrative — not a duplicate bio hero from Home.
+</page_type_rules>`
+    );
+  } else if (role === "services") {
+    parts.push(
+      `<page_type_rules priority="critical">
+THIS IS A SERVICES PAGE. Use service-card, features/process-steps, testimonials, pricing or CTA — not the same blocks order as Home unless user asks.
+</page_type_rules>`
+    );
+  } else if (role === "pricing") {
+    parts.push(
+      `<page_type_rules priority="critical">
+THIS IS A PRICING PAGE. Center pricing-table, comparison-table, FAQ — avoid portfolio hero clichés.
+</page_type_rules>`
+    );
+  } else if (role === "legal") {
+    parts.push(
+      `<page_type_rules priority="critical">
+THIS IS A LEGAL / POLICY PAGE. Use heading + text sections, minimal chrome, readable layout — not marketing sections.
+</page_type_rules>`
+    );
+  }
+
+  parts.push("</pixelprompt_builder_context>");
+  return parts.join("\n");
+}
+
+function wrapUserPromptForAgents(original: string, ctx?: OrchestrationContext): string {
+  const role = inferPageRole(original, ctx?.targetPageName, ctx?.currentPageName);
+  const prefix = buildOrchestrationContextPrefix(ctx, role);
+  return `${prefix}
+<user_request>
+${original}
+</user_request>`;
+}
+
+/** When the model still returns a homepage-style discovery, force secondary-page structure. */
+function adjustDiscoveryForPageRole(d: DiscoveryResult, role: PageRole): void {
+  if (role === "home" || role === "landing" || role === "other") return;
+
+  if (role === "about") {
+    d.primaryGoal = "Help visitors understand the person/brand story and build trust";
+    d.pageNarrative = "Who I am → Background & values → Credibility → Optional proof → Connect";
+    d.mustHaveBlocks = [
+      "navbar",
+      "hero",
+      "heading",
+      "text",
+      "features",
+      "experience-timeline",
+      "stats",
+      "social-links",
+      "footer",
+    ];
+  } else if (role === "contact") {
+    d.primaryGoal = "Make it effortless to reach out or book time";
+    d.pageNarrative = "Clear page intent → Contact options → Form → Location/links → Trust cues";
+    d.mustHaveBlocks = ["navbar", "hero", "contact-form", "map", "social-links", "faq", "footer"];
+  } else if (role === "projects") {
+    d.primaryGoal = "Showcase work and outcomes";
+    d.pageNarrative = "Context → Featured work → Metrics → Next step";
+    d.mustHaveBlocks = ["navbar", "hero", "project-card", "stats", "cta", "footer"];
+  } else if (role === "services") {
+    d.primaryGoal = "Explain offerings and drive inquiries";
+    d.pageNarrative = "Services overview → Detail cards → Process → Proof → Contact";
+    d.mustHaveBlocks = ["navbar", "hero", "service-card", "process-steps", "testimonials", "cta", "contact-form", "footer"];
+  } else if (role === "pricing") {
+    d.primaryGoal = "Compare plans and convert";
+    d.pageNarrative = "Value framing → Plans → Comparison → Objections (FAQ) → CTA";
+    d.mustHaveBlocks = ["navbar", "hero", "pricing-table", "comparison-table", "faq", "cta", "footer"];
+  } else if (role === "legal") {
+    d.primaryGoal = "Deliver clear legal/policy text";
+    d.pageNarrative = "Title → Sections of plain language";
+    d.mustHaveBlocks = ["navbar", "heading", "text", "divider", "text", "footer"];
+  }
+}
+
+function normalizeInterpretationBullets(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return raw
+      .filter((x): x is string => typeof x === "string")
+      .map((x) => x.trim())
+      .filter(Boolean)
+      .slice(0, 6);
+  }
+  if (typeof raw === "string" && raw.trim()) return [raw.trim()];
+  return [];
+}
+
+function synthesizeWhatUserWants(d: DiscoveryResult, role: PageRole): string {
+  if (d.whatUserWants && typeof d.whatUserWants === "string" && d.whatUserWants.trim()) {
+    return d.whatUserWants.trim();
+  }
+  const pageBit = role !== "home" && role !== "other" ? `${role} page for ` : "";
+  return `${pageBit}a ${d.websiteType || "website"} for ${d.profession || "the described business or person"}, with primary goal: ${d.primaryGoal || "engage visitors effectively"}.`;
+}
+
+function synthesizeInterpretationBullets(d: DiscoveryResult): string[] {
+  const fromModel = normalizeInterpretationBullets(d.whyThisInterpretation);
+  if (fromModel.length > 0) return fromModel;
+  const out: string[] = [];
+  if (d.targetAudience) out.push(`Audience: ${d.targetAudience}`);
+  if (d.pageNarrative) out.push(`Planned story: ${d.pageNarrative}`);
+  if (d.impliedFeatures?.length) {
+    out.push(`Implied needs addressed: ${d.impliedFeatures.slice(0, 4).join(", ")}`);
+  }
+  if (d.mustHaveBlocks?.length) {
+    out.push(
+      `Section focus: ${d.mustHaveBlocks.slice(0, 6).join(", ")}${d.mustHaveBlocks.length > 6 ? "…" : ""}`
+    );
+  }
+  return out.slice(0, 5);
+}
+
 // ── PHASE 0: Discovery Prompt ─────────────────────────────────────────────────
 // Forces the model to reason step-by-step through every dimension of the request.
 
@@ -109,14 +319,21 @@ who it is for, what will make it succeed, and what the user likely forgot to men
 
 <task>
 Analyze the user's request using deep, structured reasoning. Consider all possibilities.
+You MUST think through every step internally BEFORE writing JSON. Do not start the JSON until your interpretation is clear.
 Return ONLY a valid JSON object — no markdown, no code fences, no explanation.
 </task>
 
 <reasoning_process>
-Before outputting, think through these dimensions in order:
+Before outputting JSON, think through these dimensions in order (internally — do not print this chain of thought):
+
+STEP 0 — STATE THE JOB (mental checkpoint)
+  In one sentence: what is the user actually asking you to build? (Include page type if they want About, Contact, etc.)
+  If the request is vague, decide the most likely intent and note what you assumed.
 
 STEP 1 — DECODE THE REQUEST
   What exactly is this person building? What type? What sub-type?
+  Is this a FULL SITE / HOMEPAGE, or a SECONDARY PAGE (About, Contact, Projects, Services, Pricing, Blog, Legal)?
+  If the user says "about page", "contact page", "create the X page", etc., you MUST treat it as that page type — NOT as a new homepage clone.
   What industry, profession, or niche does this serve?
   Extract any names, technologies, specialties, or details mentioned.
 
@@ -151,6 +368,8 @@ STEP 7 — CONTENT STRATEGY
 
 <output_schema>
 {
+  "whatUserWants": "REQUIRED first. One clear sentence in everyday language: what you will build for the user. Resolve ambiguity (e.g. 'About page for their portfolio', not just 'a website').",
+  "whyThisInterpretation": ["REQUIRED. 2-5 short strings: how you read the request, what you assumed, what you ruled out, any page-type or audience decisions"],
   "websiteType": "portfolio|ecommerce|saas|blog|restaurant|agency|landing|event|education|personal|other",
   "subType": "specific sub-type e.g. developer|designer|photographer|consultant|startup|fashion|food|fitness|medical|real-estate|non-profit|freelancer|gym|course-platform|conference|wedding|music|law-firm",
   "profession": "Exact professional title or business type",
@@ -163,9 +382,21 @@ STEP 7 — CONTENT STRATEGY
   "designStyle": "Specific visual direction e.g. 'dark terminal aesthetic with neon green accents and code-like typography'",
   "colorPsychology": "Why these colors work for this audience and goal",
   "contentTone": "professional|creative|warm|technical|luxurious|playful|bold",
-  "personalization": "Extracted name, specialty, tech stack, company, or any personal detail"
+  "personalization": "Extracted name, specialty, tech stack, company, or any personal detail",
+  "pageRole": "home|about|contact|projects|services|pricing|blog|legal|landing|other",
+  "pageScope": "full_site|single_page|secondary_page"
 }
 </output_schema>
+
+<page_level_intelligence>
+When <pixelprompt_builder_context> or the user request indicates a SPECIFIC PAGE in a multi-page site:
+- ABOUT: mustHaveBlocks should emphasize story + credibility — NOT the same blocks as Home (avoid duplicating full skills-grid + project-card unless the user explicitly asks to repeat them). Typical: navbar, compact hero, heading, text, features (values), experience-timeline, stats, social-links, footer.
+- CONTACT: mustHaveBlocks center on contact-form, map, social-links, short hero — NOT project-card or skills-grid.
+- PROJECTS / WORK: project-card heavy, optional stats/cta — NOT generic "full stack developer" homepage hero copy.
+- SERVICES / PRICING / BLOG / LEGAL: match the page job; never default to "portfolio homepage" templates.
+
+If pageRole is about, contact, projects, services, pricing, blog, or legal — set pageScope to "secondary_page" and choose mustHaveBlocks for THAT page only.
+</page_level_intelligence>
 
 <industry_intelligence>
 
@@ -268,6 +499,8 @@ You think about page flow, attention spans, and conversion psychology.
 
 <task>
 Given the discovery analysis and user prompt, design the perfect website structure.
+FIRST read <locked_user_intent> inside discovery_analysis (if present). Your block list must directly implement THAT intent — do not invent a different product or page type.
+Only after the intent is clear, choose blocks and order.
 Return ONLY a valid JSON object — no markdown, no code fences.
 </task>
 
@@ -287,6 +520,8 @@ Return ONLY a valid JSON object — no markdown, no code fences.
 </output_schema>
 
 <design_rules>
+0. SECONDARY PAGES (About, Contact, Projects, etc.): If the user message includes <inferred_page_role> that is NOT "home" or "landing", you MUST design that page type only. Do NOT copy the Home/portfolio flow (hero + skills-grid + project-card + contact-form) unless the role is explicitly "home". About needs story/credibility blocks; Contact needs form/map/social; Projects needs project-card focus.
+
 1. BLOCKS: 7–12 items. Every block serves the page goal. No filler.
 
 2. VARY THE ORDER — Do NOT always use hero → features → testimonials → footer. Match the narrative arc:
@@ -352,7 +587,7 @@ Return ONLY a valid JSON object — no markdown, no code fences.
    - Footer: always near-black (#0c0c0c) or very dark regardless of theme
    RULE: No two consecutive sections can have the same backgroundColor hex.
 
-6. PORTFOLIO: ALWAYS include project-card + skills-grid. NON-NEGOTIABLE.
+6. PORTFOLIO (HOME/LANDING ONLY): When building the main portfolio home page, include project-card + skills-grid. NON-NEGOTIABLE for that case. Do NOT force these on About, Contact, or other secondary pages unless the user explicitly asks.
 7. EVENT: ALWAYS include countdown + event-schedule + pricing-table.
 8. EDUCATION: ALWAYS include course-card + stats + testimonials.
 9. PERSONAL/RESUME: ALWAYS include skills-grid + experience-timeline + project-card + contact-form.
@@ -392,6 +627,7 @@ RULES:
 - features: 3-6 items with real titles+descriptions. skills-grid: 8-12 real skills with level 0-100. project-card: exactly 3 projects with title,description,image,techStack,liveUrl("#"),repoUrl("#"). experience-timeline: 3-4 entries. stats: 3-4 credible numbers. testimonials: full name+role+company+specific outcome quote.
 - Images: use Unsplash URLs provided in the request. Pick different ones for variety.
 - footer: real columns (Company/Product/Resources/Legal) with 3-5 links each + copyright with current year.
+- SECONDARY PAGE: If the plan intent is About/Contact/Projects (check <intent> and user context), hero title/subtitle must match THAT page (e.g. "About Jane" / "Let's work together" for contact) — never recycle the generic homepage value-prop headline unless building Home.
 
 PROPS REFERENCE:
 hero:{title,subtitle,buttonText,backgroundImage?}|navbar:{brand,links:[{label,url}],ctaText?}|footer:{columns:[{title,links:[string]}],copyright}|features:{features:[{title,desc,icon?}]}|testimonials:{testimonials:[{name,role,quote,rating?}]}|pricing-table:{plans:[{name,price,features:[string],highlighted:boolean}]}|stats:{stats:[{value,label}]}|team:{members:[{name,role,bio,image}]}|gallery:{images:[{src,alt}]}|faq:{title,items:[{question,answer}]}|contact-form:{title,subtitle,buttonText}|newsletter:{title,subtitle,buttonText}|logo-cloud:{title,logos:[string]}|cta:{title,subtitle,primaryButton,secondaryButton}|countdown:{title,subtitle,targetDate}|product-card:{products:[{name,price,description,image,badge?}]}|social-links:{links:[{platform,url}]}|blog-list:{title,posts:[{title,excerpt,author,date,category}]}|map:{address,zoom,height}|booking-form:{title,subtitle,buttonText,services:[string]}|project-card:{title,projects:[{title,description,image,techStack:[string],liveUrl,repoUrl}]}|experience-timeline:{title,items:[{title,company,period,description}]}|skills-grid:{title,skills:[{name,level,icon:"code"|"design"|"cloud"|"data"|"mobile"|"devops"}]}|process-steps:{title,steps:[{stepNumber,title,description}]}|service-card:{title,services:[{icon,title,description,price?}]}|menu-grid:{title,categories:[{name,items:[{name,price,description}]}]}|event-schedule:{title,days:[{date,slots:[{time,title,speaker,description}]}]}|course-card:{title,courses:[{title,instructor,rating,students,price,image,category}]}|comparison-table:{title,features:[string],plans:[{name,values:[string|boolean]}]}`;
@@ -417,6 +653,7 @@ STRUCTURAL CHECKS:
 ✓ footer must be last block if present
 ✓ no two identical block types in a row (unless section/spacer/divider)
 ✓ page starts with a visual section (hero or image or gallery) — not a form
+✓ If the user asked for About/Contact/Projects page: hero copy must NOT be a duplicate generic "full stack developer crafting innovative solutions" homepage pitch — tailor to the page type
 
 CONTENT QUALITY:
 ✓ No placeholder text: "Feature 1", "Lorem ipsum", "Company A", "Your Title", "Skill 1", "New Feature", "Description" etc.
@@ -515,10 +752,13 @@ Return ONLY a valid JSON object — no markdown, no code fences.
 
 export async function orchestrate(
   prompt: string,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  ctx?: OrchestrationContext
 ): Promise<OrchestrationResult> {
   const emit = (event: ProgressEvent) => onProgress?.(event);
   const tasks: AgentTask[] = [];
+  const augmented = wrapUserPromptForAgents(prompt, ctx);
+  const resolvedPageRole = inferPageRole(prompt, ctx?.targetPageName, ctx?.currentPageName);
 
   // ── Phase 0: Discovery ────────────────────────────────────────────────────
   let discovery: DiscoveryResult | null = null;
@@ -526,12 +766,16 @@ export async function orchestrate(
   const discoverTask: AgentTask = {
     id: nanoid(8),
     phase: "discover",
-    description: "Think through every dimension: audience, goal, narrative, required blocks",
+    description: "Think first: interpret what the user wants to build, then lock intent",
     status: "running",
   };
   tasks.push(discoverTask);
 
-  emit({ type: "phase_start", phase: "discover", message: "🔎 Analyzing every dimension of your request..." });
+  emit({
+    type: "phase_start",
+    phase: "discover",
+    message: "🤔 Step 1 — Thinking through what you want to build (before any design)…",
+  });
   emit({ type: "task_update", task: discoverTask });
 
   try {
@@ -539,9 +783,9 @@ export async function orchestrate(
       "planner",
       [
         { role: "system", content: DISCOVERY_SYSTEM },
-        { role: "user", content: prompt },
+        { role: "user", content: augmented },
       ],
-      { temperature: 0.15, maxTokens: 1200, topP: 0.9 }
+      { temperature: 0.15, maxTokens: 1536, topP: 0.9 }
     );
 
     discoverTask.providerName = providerName;
@@ -549,7 +793,12 @@ export async function orchestrate(
 
     const jsonStr = extractJSON(raw, "{");
     if (jsonStr) {
-      discovery = JSON.parse(jsonStr) as DiscoveryResult;
+      const rawDiscover = JSON.parse(jsonStr) as Record<string, unknown>;
+      discovery = rawDiscover as unknown as DiscoveryResult;
+      if (!discovery.whyThisInterpretation?.length && Array.isArray(rawDiscover.interpretationNotes)) {
+        discovery.whyThisInterpretation = normalizeInterpretationBullets(rawDiscover.interpretationNotes);
+      }
+      adjustDiscoveryForPageRole(discovery, resolvedPageRole);
       discoverTask.status = "done";
       discoverTask.result = {
         websiteType: discovery.websiteType,
@@ -575,6 +824,16 @@ export async function orchestrate(
       if (discovery.impliedFeatures?.length) {
         emit({ type: "log", message: `💡 Implied needs: ${discovery.impliedFeatures.join(", ")}` });
       }
+      if (resolvedPageRole !== "home") {
+        emit({ type: "log", message: `📄 Page focus: ${resolvedPageRole} (tailored layout, not a homepage clone)` });
+      }
+
+      emit({
+        type: "thinking",
+        phase: "intent",
+        summary: synthesizeWhatUserWants(discovery, resolvedPageRole),
+        bullets: synthesizeInterpretationBullets(discovery),
+      });
     } else {
       throw new Error("No JSON in discovery response");
     }
@@ -583,6 +842,15 @@ export async function orchestrate(
     discoverTask.error = err.message;
     emit({ type: "task_update", task: discoverTask });
     emit({ type: "log", message: `⚠️ Discovery skipped (${err.message}), proceeding with direct planning` });
+    emit({
+      type: "thinking",
+      phase: "intent",
+      summary:
+        resolvedPageRole !== "home"
+          ? `Build a ${resolvedPageRole} page matching your request (deep analysis skipped).`
+          : `Build from your prompt (deep analysis skipped): ${prompt.slice(0, 160)}${prompt.length > 160 ? "…" : ""}`,
+      bullets: ["Using keyword + planner fallback because the understanding step did not return valid JSON."],
+    });
   }
 
   // ── Phase 1: Planner ──────────────────────────────────────────────────────
@@ -594,19 +862,23 @@ export async function orchestrate(
   };
   tasks.push(planTask);
 
-  emit({ type: "phase_start", phase: "plan", message: "🧠 Architecting the perfect page structure..." });
+  emit({
+    type: "phase_start",
+    phase: "plan",
+    message: "🧠 Step 2 — Planning structure that matches that intent…",
+  });
   emit({ type: "task_update", task: planTask });
 
   let plan: PlanResult;
 
   try {
     const discoveryCtx = discovery
-      ? buildDiscoveryContext(discovery)
+      ? buildDiscoveryContext(discovery, resolvedPageRole)
       : "";
 
     const plannerMsg = `${discoveryCtx}
 
-<user_request>${prompt}</user_request>
+${augmented}
 
 Design the optimal page structure. Every block choice must serve the goal: "${discovery?.primaryGoal || "impress visitors and drive action"}".
 The page narrative should be: "${discovery?.pageNarrative || "engage → inform → convince → convert"}".`;
@@ -655,8 +927,18 @@ The page narrative should be: "${discovery?.pageNarrative || "engage → inform 
     planTask.error = err.message;
     emit({ type: "task_update", task: planTask });
     emit({ type: "log", message: `⚠️ Planner failed (${err.message}), using intelligent fallback` });
-    plan = buildFallbackPlan(prompt, discovery);
+    plan = buildFallbackPlan(prompt, discovery, resolvedPageRole);
   }
+
+  emit({
+    type: "thinking",
+    phase: "structure",
+    summary: plan.intent,
+    bullets: [
+      `Sections in order: ${plan.blocks.join(" → ")}`,
+      plan.style ? `Look & feel: ${plan.style.length > 220 ? `${plan.style.slice(0, 220)}…` : plan.style}` : "",
+    ].filter(Boolean),
+  });
 
   // ── Phase 2: Coder ────────────────────────────────────────────────────────
   const codeTask: AgentTask = {
@@ -670,7 +952,7 @@ The page narrative should be: "${discovery?.pageNarrative || "engage → inform 
   emit({
     type: "phase_start",
     phase: "code",
-    message: `⚡ Generating ${plan.blocks.length} blocks with real content...`,
+    message: `⚡ Step 3 — Building ${plan.blocks.length} blocks from the plan…`,
   });
   emit({ type: "task_update", task: codeTask });
 
@@ -691,14 +973,20 @@ The page narrative should be: "${discovery?.pageNarrative || "engage → inform 
         message: `⚡ Generating batch ${b + 1}/${batches} (${currentBlocks.join(", ")})...`
       });
 
+      const pageRoleHint =
+        resolvedPageRole !== "home"
+          ? `\n<page_generation_focus>${resolvedPageRole}</page_generation_focus>
+The blocks you output must read as a "${resolvedPageRole}" page — not a duplicate homepage marketing hero unless this batch is explicitly the navbar/footer.`
+          : "";
+
       const personalization = discovery
         ? `\n<personalization>
 Person: ${discovery.profession}${discovery.personalization ? ` — ${discovery.personalization}` : ""}
 Audience: ${discovery.targetAudience}
 Content tone: ${discovery.contentTone}
 Generate content that is authentic, specific, and tailored to this exact profile. No generic placeholders.
-</personalization>`
-        : "";
+</personalization>${pageRoleHint}`
+        : pageRoleHint || "";
 
       const historyCtx = rawBlocks.length > 0
         ? `\n<blocks_already_generated_in_this_session>
@@ -1063,14 +1351,50 @@ function generateFallbackBlocks(plan: PlanResult, discovery: DiscoveryResult | n
       case "footer":
         blocks.push({ id, type: "footer", props: { columns: [{ title: "Company", links: ["About", "Services", "Portfolio", "Contact"] }, { title: "Services", links: ["Web Development", "Mobile Apps", "Consulting", "Support"] }, { title: "Resources", links: ["Blog", "Case Studies", "Documentation", "FAQ"] }], copyright: `© ${new Date().getFullYear()} ${prof}. All rights reserved.` }, style: { ...style, backgroundColor: "#0c0c0c", textColor: "#e5e7eb" } });
         break;
+      case "heading":
+        blocks.push({ id, type: "heading", props: { text: "Privacy & terms", level: 2 }, style });
+        break;
+      case "text":
+        blocks.push({
+          id,
+          type: "text",
+          props: {
+            text:
+              "This page explains how we collect, use, and protect information. Last updated: " +
+              new Date().getFullYear() +
+              ". Contact us if you have questions about these policies.",
+          },
+          style,
+        });
+        break;
+      case "divider":
+        blocks.push({ id, type: "divider", props: {}, style: { ...style, backgroundColor: cs.background } });
+        break;
+      case "map":
+        blocks.push({ id, type: "map", props: { address: "Remote / worldwide — schedule a call", zoom: 12, height: 280 }, style });
+        break;
+      case "social-links":
+        blocks.push({
+          id,
+          type: "social-links",
+          props: {
+            links: [
+              { platform: "GitHub", url: "#" },
+              { platform: "LinkedIn", url: "#" },
+              { platform: "Twitter", url: "#" },
+            ],
+          },
+          style,
+        });
+        break;
       default:
         // Skip unknown block types in fallback
         break;
     }
   }
 
-  // Guarantee at least a hero + footer
-  if (!blocks.find(b => b.type === "hero")) {
+  // Guarantee a hero for typical marketing pages — skip for legal/document-style plans
+  if (!blocks.find(b => b.type === "hero") && !/legal|policy|privacy|terms/i.test(plan.intent)) {
     blocks.unshift({ id: nanoid(8), type: "hero", props: { title: `Welcome to ${prof}`, subtitle: "Professional services delivered with excellence.", buttonText: "Learn More" }, style: { backgroundColor: cs.primary, textColor: cs.text, animation: "fade-in", animationDuration: "0.8", animationDelay: "0" } });
   }
   if (!blocks.find(b => b.type === "footer")) {
@@ -1080,8 +1404,12 @@ function generateFallbackBlocks(plan: PlanResult, discovery: DiscoveryResult | n
   return ensureUniqueIds(blocks.filter(b => VALID_TYPES.has(b.type)));
 }
 
-function buildDiscoveryContext(d: DiscoveryResult): string {
+function buildDiscoveryContext(d: DiscoveryResult, pageRole: PageRole): string {
+  const locked = d.whatUserWants?.trim() || synthesizeWhatUserWants(d, pageRole);
+  const notes = normalizeInterpretationBullets(d.whyThisInterpretation).join(" · ");
   return `<discovery_analysis>
+<locked_user_intent>${locked}</locked_user_intent>
+<interpretation_notes>${notes}</interpretation_notes>
 <website_type>${d.websiteType}${d.subType ? ` / ${d.subType}` : ""}</website_type>
 <profession>${d.profession}</profession>
 <target_audience>${d.targetAudience}</target_audience>
@@ -1261,8 +1589,63 @@ function defaultColorScheme(type?: string): PlanResult["colorScheme"] {
   return schemes[type || ""] || schemes.landing;
 }
 
-function buildFallbackPlan(prompt: string, discovery?: DiscoveryResult | null): PlanResult {
+function buildFallbackPlan(
+  prompt: string,
+  discovery?: DiscoveryResult | null,
+  pageRole: PageRole = "home"
+): PlanResult {
   const lower = prompt.toLowerCase();
+  const wt = discovery?.websiteType;
+  const cs = defaultColorScheme(wt);
+
+  if (pageRole === "about") {
+    return {
+      intent: "About page — story, credibility, and connection (not a homepage clone)",
+      style: "Warm editorial sections with clear typography; distinct from landing hero",
+      blocks: ["navbar", "hero", "heading", "text", "features", "experience-timeline", "stats", "social-links", "footer"],
+      colorScheme: cs,
+    };
+  }
+  if (pageRole === "contact") {
+    return {
+      intent: "Contact page — form, location, and trust cues",
+      style: "Clean conversion-focused layout; minimal marketing hero",
+      blocks: ["navbar", "hero", "contact-form", "map", "social-links", "faq", "footer"],
+      colorScheme: cs,
+    };
+  }
+  if (pageRole === "projects") {
+    return {
+      intent: "Projects / work showcase page",
+      style: "Case-study forward layout with strong visuals",
+      blocks: ["navbar", "hero", "project-card", "stats", "cta", "footer"],
+      colorScheme: cs,
+    };
+  }
+  if (pageRole === "services") {
+    return {
+      intent: "Services page — offerings and process",
+      style: "Service-led grid with proof and CTA",
+      blocks: ["navbar", "hero", "service-card", "process-steps", "testimonials", "cta", "contact-form", "footer"],
+      colorScheme: cs,
+    };
+  }
+  if (pageRole === "pricing") {
+    return {
+      intent: "Pricing page — plans and comparison",
+      style: "Trustworthy comparison-first layout",
+      blocks: ["navbar", "hero", "pricing-table", "comparison-table", "faq", "cta", "footer"],
+      colorScheme: cs,
+    };
+  }
+  if (pageRole === "legal") {
+    return {
+      intent: "Legal / policy page — readable text",
+      style: "Minimal, document-style readability",
+      blocks: ["navbar", "heading", "text", "divider", "text", "footer"],
+      colorScheme: cs,
+    };
+  }
 
   // Use discovery data first
   if (discovery?.mustHaveBlocks?.length) {
